@@ -1,0 +1,11 @@
+# Ocultar las contraseñas y claves de API
+.env
+
+# Ocultar el entorno virtual de Python (no se sube a GitHub, se recrea en cada PC)
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Ocultar el archivo temporal local que usamos de pruebas
+local_db_mock.json
