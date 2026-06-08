@@ -9,6 +9,6 @@ __pycache__/
 
 # Ocultar archivos de configuración de editores de código
 .vscode/
-
+git
 # Ocultar el archivo temporal local que usamos de pruebas
 local_db_mock.json
