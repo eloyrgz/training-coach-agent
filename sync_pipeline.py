@@ -84,8 +84,6 @@ class TrainingDataPipeline:
         response.raise_for_status()
         activities = response.json()
         
-        print(f"DEBUG: Number of activities received from Intervals API: {len(activities)}")
-        
         with self.db_conn.cursor() as cur:
             for act in activities:
                 activity_id = str(act.get('id'))
@@ -163,11 +161,6 @@ if __name__ == "__main__":
     supabase_uri = os.getenv("SUPABASE_DB_URI")
     supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
     
-    # 🔍 LÍNEAS DE DIAGNÓSTICO TEMPORALES:
-    if icu_api_key:
-        print(f"DEBUG - Longitud de la API Key: {len(icu_api_key)}")
-        print(f"DEBUG - Empieza por: '{icu_api_key[:4]}...' y termina por: '...{icu_api_key[-4:]}'")
-
     # Assert configuration is complete
     if not all([athlete_id, icu_api_key, supabase_uri]):
         print("❌ Error: Missing configuration variables in your .env file.")

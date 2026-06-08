@@ -4,7 +4,7 @@ from typing import TypedDict, List, Dict, Any
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
 
-from agent_memory import LocalAgentMemory
+from agent_memory import SupabaseAgentMemory
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
@@ -18,7 +18,7 @@ class AgentState(TypedDict):
     final_prescription: str
 
 # Inicializamos la memoria real conectada a Supabase
-db_memory = LocalAgentMemory()
+db_memory = SupabaseAgentMemory()
 
 def retrieve_athlete_data_node(state: AgentState) -> Dict[str, Any]:
     print("\n[NODE 1] -> Querying Supabase Production Tables...")

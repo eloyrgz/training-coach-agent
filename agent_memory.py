@@ -4,7 +4,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 from sentence_transformers import SentenceTransformer
 
-class LocalAgentMemory:
+class SupabaseAgentMemory:
     def __init__(self):
         print("Initializing Agent Memory connected to Supabase Production...")
         # Intentamos usar la de pooler que ya validamos que funciona con IPv4 en tu red
