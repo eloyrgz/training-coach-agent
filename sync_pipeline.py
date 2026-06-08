@@ -14,7 +14,7 @@ load_dotenv(override=True)
 class TrainingDataPipeline:
     def __init__(self, athlete_id: str, icu_api_key: str, db_uri: str, fallback_db_uri: str | None = None):
         self.athlete_id = athlete_id
-        self.icu_auth = (athlete_id, icu_api_key)
+        self.icu_auth = ('API_KEY', icu_api_key)
         self.icu_base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
         self.db_conn = self._connect_with_fallback(db_uri, fallback_db_uri)
         
@@ -163,6 +163,11 @@ if __name__ == "__main__":
     supabase_uri = os.getenv("SUPABASE_DB_URI")
     supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
     
+    # 🔍 LÍNEAS DE DIAGNÓSTICO TEMPORALES:
+    if icu_api_key:
+        print(f"DEBUG - Longitud de la API Key: {len(icu_api_key)}")
+        print(f"DEBUG - Empieza por: '{icu_api_key[:4]}...' y termina por: '...{icu_api_key[-4:]}'")
+
     # Assert configuration is complete
     if not all([athlete_id, icu_api_key, supabase_uri]):
         print("❌ Error: Missing configuration variables in your .env file.")

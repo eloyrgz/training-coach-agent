@@ -8,7 +8,7 @@ from agent_memory import LocalAgentMemory
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 
-load_dotenv()
+load_dotenv(override=True)
 
 class AgentState(TypedDict):
     user_input: str
@@ -34,9 +34,15 @@ def evaluate_injury_risk_node(state: AgentState) -> Dict[str, Any]:
     risk_report = "LOW_RISK"
     reasons = []
     
-    if metrics and metrics.get("form_tsb", 0) < -15.0:
-        reasons.append(f"High Fatigue (TSB: {metrics['form_tsb']})")
-        risk_report = "HIGH_RISK"
+    # Manejo seguro si form_tsb viene como None o no existe
+    if metrics and metrics.get("form_tsb") is not None:
+        try:
+            tsb_val = float(metrics["form_tsb"])
+            if tsb_val < -15.0:
+                reasons.append(f"High Fatigue (TSB: {tsb_val})")
+                risk_report = "HIGH_RISK"
+        except ValueError:
+            pass
         
     if context:
         reasons.append(f"Matching historical injury logs found")
@@ -60,7 +66,7 @@ def generate_prescription_node(state: AgentState) -> Dict[str, Any]:
         "--- HISTORICAL LOGS ---\n"
         "{historical_context}\n\n"
         "--- DIRECTIVES ---\n"
-        "Provide a technical, structured training advice in bullet points. Be concise and highly specific to their metrics."
+        "Provide technical, structured training advice in bullet points. Respond in Spanish. Be concise and highly specific to their metrics."
     )
 
     prompt_template = ChatPromptTemplate.from_messages([
@@ -99,7 +105,6 @@ workflow.add_edge("PrescriptionGenerator", END)
 coach_agent = workflow.compile()
 
 if __name__ == "__main__":
-    # Test real de tu consulta médica/deportiva en español
     user_query = "Me preocupa un pie, noto inflamación en la zona del neuroma esta semana, ¿debería descansar?"
     print(f"🚀 Launching Live Agent for query: '{user_query}'")
     
@@ -111,3 +116,5 @@ if __name__ == "__main__":
     print("============================================================")
     print(final_output["final_prescription"])
     print("============================================================")
+    
+    db_memory.close()
