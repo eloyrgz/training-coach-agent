@@ -153,32 +153,40 @@ class TrainingDataPipeline:
 
 # --- ENTRY POINT: CONFIGURATION LOADED FROM ENVIRONMENT ---
 if __name__ == "__main__":
-    print("Starting pipeline using environment configuration...")
-    
-    # Read variables loaded by load_dotenv()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sync training data from Intervals.icu to Supabase.")
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=90,
+        help="Number of days back to sync (default: 90). Use a large value e.g. 3650 for a full backfill.",
+    )
+    args = parser.parse_args()
+
+    print(f"Starting pipeline — syncing last {args.days} days...")
+
     athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
     icu_api_key = os.getenv("INTERVALS_API_KEY")
     supabase_uri = os.getenv("SUPABASE_DB_URI")
     supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
-    
-    # Assert configuration is complete
+
     if not all([athlete_id, icu_api_key, supabase_uri]):
         print("❌ Error: Missing configuration variables in your .env file.")
         print("Please check INTERVALS_ATHLETE_ID, INTERVALS_API_KEY, and SUPABASE_DB_URI.")
         sys.exit(1)
-        
+
     try:
         pipeline = TrainingDataPipeline(
-            athlete_id=athlete_id, 
-            icu_api_key=icu_api_key, 
+            athlete_id=athlete_id,
+            icu_api_key=icu_api_key,
             db_uri=supabase_uri,
-            fallback_db_uri=supabase_pooler_uri
+            fallback_db_uri=supabase_pooler_uri,
         )
-        
-        # Pull data from the last 90 days
-        pipeline.sync_activities(days_back=90)
+
+        pipeline.sync_activities(days_back=args.days)
         pipeline.close()
         print("🏁 Execution finished successfully.")
-        
+
     except Exception as e:
         print(f"❌ Execution failed with error: {e}")
