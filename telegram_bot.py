@@ -139,6 +139,9 @@ def main() -> None:
             "Get a token from @BotFather on Telegram."
         )
 
+    # Python 3.14 no longer creates a default event loop automatically.
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
