@@ -7,23 +7,35 @@ from sentence_transformers import SentenceTransformer
 class SupabaseAgentMemory:
     def __init__(self):
         print("Initializing Agent Memory connected to Supabase Production...")
-        # Intentamos usar la de pooler que ya validamos que funciona con IPv4 en tu red
-        db_uri = os.getenv("SUPABASE_POOLER_DB_URI") or os.getenv("SUPABASE_DB_URI")
-        
-        if not db_uri:
+        self._db_uri = os.getenv("SUPABASE_POOLER_DB_URI") or os.getenv("SUPABASE_DB_URI")
+
+        if not self._db_uri:
             print("❌ Error: No database URI found in environment variables.")
             sys.exit(1)
-            
-        try:
-            self.conn = psycopg2.connect(db_uri)
-            # Usamos RealDictCursor para que nos devuelva las filas como diccionarios de Python
-            self.conn.cursor_factory = RealDictCursor
-        except Exception as e:
-            print(f"❌ Error connecting to Supabase from Memory module: {e}")
-            raise
-            
+
+        self.conn = self._new_connection()
+
         print("Loading local embedding model (all-MiniLM-L6-v2) for queries...")
         self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
+
+    def _new_connection(self):
+        conn = psycopg2.connect(self._db_uri)
+        conn.autocommit = True  # each query sees the latest committed data; no idle transaction held
+        conn.cursor_factory = RealDictCursor
+        return conn
+
+    def _cursor(self):
+        """Return a cursor, reconnecting transparently if the connection has gone stale."""
+        try:
+            self.conn.cursor().execute("SELECT 1")
+        except Exception:
+            print("⚠️ DB connection lost — reconnecting...")
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = self._new_connection()
+        return self.conn.cursor()
 
     def get_injury_context(self, user_query: str, threshold: float = 0.3, limit: int = 3):
         """Queries Supabase using pgvector cosine distance (<=>)"""
@@ -45,7 +57,7 @@ class SupabaseAgentMemory:
         """
         
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, (str(query_vector), str(query_vector), threshold, limit))
                 rows = cur.fetchall()
                 for row in rows:
@@ -71,7 +83,7 @@ class SupabaseAgentMemory:
         LIMIT 1;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query)
                 row = cur.fetchone()
                 return dict(row) if row else None
@@ -100,7 +112,7 @@ class SupabaseAgentMemory:
         LIMIT %s;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, (limit,))
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
@@ -117,7 +129,7 @@ class SupabaseAgentMemory:
             distance_meters, moving_time_seconds, elevation_gain_meters,
             rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb
         FROM training_metrics
-        WHERE activity_date BETWEEN %s AND %s
+        WHERE activity_date::date BETWEEN %s AND %s
         """
         params: list = [start_date, end_date]
         if activity_type:
@@ -126,7 +138,7 @@ class SupabaseAgentMemory:
         base_query += f" ORDER BY {sort_column} DESC NULLS LAST LIMIT %s;"
         params.append(limit)
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(base_query, params)
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
@@ -153,7 +165,7 @@ class SupabaseAgentMemory:
             params.append(activity_type)
         base_query += ";"
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(base_query, params)
                 row = cur.fetchone()
                 return dict(row) if row else {}
@@ -169,14 +181,14 @@ class SupabaseAgentMemory:
         SELECT
             DATE_TRUNC('{group_by}', activity_date)::date::text  AS period,
             COUNT(*)                                              AS num_activities,
-            ROUND(SUM(distance_meters) / 1000.0, 1)              AS total_km,
-            ROUND(SUM(moving_time_seconds) / 3600.0, 2)          AS total_hours,
-            ROUND(SUM(elevation_gain_meters))                     AS total_elevation_m,
-            ROUND(AVG(fitness_ctl), 1)                            AS avg_ctl,
-            ROUND(AVG(fatigue_atl), 1)                            AS avg_atl,
-            ROUND(AVG(form_tsb), 1)                               AS avg_tsb
+            ROUND(SUM(distance_meters)::numeric / 1000.0, 1)              AS total_km,
+            ROUND(SUM(moving_time_seconds)::numeric / 3600.0, 2)          AS total_hours,
+            ROUND(SUM(elevation_gain_meters)::numeric)                     AS total_elevation_m,
+            ROUND(AVG(fitness_ctl)::numeric, 1)                            AS avg_ctl,
+            ROUND(AVG(fatigue_atl)::numeric, 1)                            AS avg_atl,
+            ROUND(AVG(form_tsb)::numeric, 1)                               AS avg_tsb
         FROM training_metrics
-        WHERE activity_date BETWEEN %s AND %s
+        WHERE activity_date::date BETWEEN %s AND %s
         {"AND LOWER(activity_type) = LOWER(%s)" if activity_type else ""}
         GROUP BY 1
         ORDER BY 1 DESC;
@@ -185,7 +197,7 @@ class SupabaseAgentMemory:
         if activity_type:
             params.append(activity_type)
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, params)
                 rows = cur.fetchall()
                 return [dict(row) for row in rows]
@@ -198,19 +210,19 @@ class SupabaseAgentMemory:
         query = """
         SELECT
             DATE_TRUNC('week', activity_date)::date::text AS week,
-            ROUND(AVG(fitness_ctl), 1)  AS avg_ctl,
-            ROUND(MAX(fitness_ctl), 1)  AS peak_ctl,
-            ROUND(AVG(fatigue_atl), 1)  AS avg_atl,
-            ROUND(AVG(form_tsb), 1)     AS avg_tsb,
+            ROUND(AVG(fitness_ctl)::numeric, 1)  AS avg_ctl,
+            ROUND(MAX(fitness_ctl)::numeric, 1)  AS peak_ctl,
+            ROUND(AVG(fatigue_atl)::numeric, 1)  AS avg_atl,
+            ROUND(AVG(form_tsb)::numeric, 1)     AS avg_tsb,
             MIN(form_tsb)               AS lowest_tsb
         FROM training_metrics
-        WHERE activity_date BETWEEN %s AND %s
+        WHERE activity_date::date BETWEEN %s AND %s
             AND fitness_ctl IS NOT NULL
         GROUP BY 1
         ORDER BY 1 ASC;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, (start_date, end_date))
                 return [dict(row) for row in cur.fetchall()]
         except Exception as e:
@@ -223,16 +235,16 @@ class SupabaseAgentMemory:
         SELECT
             activity_type,
             COUNT(*)                                    AS num_activities,
-            ROUND(SUM(distance_meters) / 1000.0, 1)    AS total_km,
-            ROUND(SUM(moving_time_seconds) / 3600.0, 2) AS total_hours,
-            ROUND(SUM(elevation_gain_meters))           AS total_elevation_m
+            ROUND(SUM(distance_meters)::numeric / 1000.0, 1)    AS total_km,
+            ROUND(SUM(moving_time_seconds)::numeric / 3600.0, 2) AS total_hours,
+            ROUND(SUM(elevation_gain_meters)::numeric)           AS total_elevation_m
         FROM training_metrics
-        WHERE activity_date BETWEEN %s AND %s
+        WHERE activity_date::date BETWEEN %s AND %s
         GROUP BY activity_type
         ORDER BY total_hours DESC;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, (start_date, end_date))
                 return [dict(row) for row in cur.fetchall()]
         except Exception as e:
@@ -248,18 +260,18 @@ class SupabaseAgentMemory:
         active_days AS (
             SELECT DISTINCT activity_date::date AS day
             FROM training_metrics
-            WHERE activity_date BETWEEN %s AND %s
+            WHERE activity_date::date BETWEEN %s AND %s
         )
         SELECT
             COUNT(*)                                            AS total_days,
             COUNT(active_days.day)                              AS active_days,
             COUNT(*) - COUNT(active_days.day)                   AS rest_days,
-            ROUND(100.0 * COUNT(active_days.day) / COUNT(*), 1) AS active_pct
+            ROUND((100.0 * COUNT(active_days.day) / COUNT(*))::numeric, 1) AS active_pct
         FROM date_series
         LEFT JOIN active_days ON date_series.day = active_days.day;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query, (start_date, end_date, start_date, end_date))
                 row = cur.fetchone()
                 return dict(row) if row else {}
@@ -272,15 +284,15 @@ class SupabaseAgentMemory:
         period_query = """
         SELECT
             COUNT(*)                                        AS num_activities,
-            ROUND(SUM(distance_meters) / 1000.0, 1)        AS total_km,
-            ROUND(SUM(moving_time_seconds) / 3600.0, 2)    AS total_hours,
-            ROUND(SUM(elevation_gain_meters))               AS total_elevation_m,
-            ROUND(AVG(fitness_ctl), 1)                      AS avg_ctl,
-            ROUND(AVG(fatigue_atl), 1)                      AS avg_atl,
-            ROUND(AVG(form_tsb), 1)                         AS avg_tsb,
-            ROUND(AVG(rpe), 1)                              AS avg_rpe
+            ROUND(SUM(distance_meters)::numeric / 1000.0, 1)        AS total_km,
+            ROUND(SUM(moving_time_seconds)::numeric / 3600.0, 2)    AS total_hours,
+            ROUND(SUM(elevation_gain_meters)::numeric)               AS total_elevation_m,
+            ROUND(AVG(fitness_ctl)::numeric, 1)                      AS avg_ctl,
+            ROUND(AVG(fatigue_atl)::numeric, 1)                      AS avg_atl,
+            ROUND(AVG(form_tsb)::numeric, 1)                         AS avg_tsb,
+            ROUND(AVG(rpe)::numeric, 1)                              AS avg_rpe
         FROM training_metrics
-        WHERE activity_date BETWEEN %s AND %s
+        WHERE activity_date::date BETWEEN %s AND %s
         {sport_filter};
         """
         sport_filter = "AND LOWER(activity_type) = LOWER(%s)" if activity_type else ""
@@ -290,7 +302,7 @@ class SupabaseAgentMemory:
             params = [start, end]
             if activity_type:
                 params.append(activity_type)
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(q, params)
                 row = cur.fetchone()
                 return dict(row) if row else {}
@@ -336,7 +348,7 @@ class SupabaseAgentMemory:
         LIMIT 1;
         """
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(query)
                 row = cur.fetchone()
                 return dict(row) if row else {}
@@ -347,7 +359,7 @@ class SupabaseAgentMemory:
     def get_activity_ids_for_date(self, target_date: str) -> list:
         """Returns activity_id and name for all activities on a given date"""
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(
                     """
                     SELECT activity_id, activity_name, activity_type
@@ -365,7 +377,7 @@ class SupabaseAgentMemory:
     def update_rpe_local(self, activity_id: str, rpe: int) -> bool:
         """Updates RPE in the local training_metrics table"""
         try:
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(
                     "UPDATE training_metrics SET rpe = %s WHERE activity_id = %s;",
                     (rpe, activity_id),
@@ -381,7 +393,7 @@ class SupabaseAgentMemory:
         """Inserts a new subjective training note into injury_logs and computes its embedding"""
         try:
             vector = self.encoder.encode(note).tolist()
-            with self.conn.cursor() as cur:
+            with self._cursor() as cur:
                 cur.execute(
                     """
                     INSERT INTO injury_logs (log_date, log_type, original_text, embedding)

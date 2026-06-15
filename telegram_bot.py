@@ -28,6 +28,7 @@ from telegram.ext import (
 
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
+from sync_pipeline import TrainingDataPipeline
 
 load_dotenv(override=True)
 
@@ -75,7 +76,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         f"👋 Hola {user.first_name}! Soy tu coach de entrenamiento.\n\n"
         "Puedes preguntarme sobre tus actividades, planes, estado de forma, etc.\n"
-        "Usa /reset para limpiar el historial de conversación."
+        "• /sync — sincroniza tus últimas actividades desde Intervals.icu\n"
+        "• /sync 7 — sincroniza los últimos N días\n"
+        "• /reset — borra el historial de conversación"
     )
 
 
@@ -85,6 +88,51 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     _conversations[user.id] = []
     await update.message.reply_text("🔄 Historial borrado. ¡Empezamos de nuevo!")
+
+
+async def sync(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not _is_allowed(user.id):
+        await update.message.reply_text("⛔ No tienes acceso a este bot.")
+        return
+
+    days = 1
+    if context.args:
+        try:
+            days = int(context.args[0])
+            if days < 1:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("⚠️ Uso: /sync [días] (e.g. /sync 7)")
+            return
+
+    await update.message.reply_text(f"🔄 Sincronizando últimos {days} día(s)... espera un momento.")
+    await update.message.chat.send_action(ChatAction.TYPING)
+
+    def _run_sync():
+        athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+        icu_api_key = os.getenv("INTERVALS_API_KEY")
+        supabase_uri = os.getenv("SUPABASE_DB_URI")
+        supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
+        if not all([athlete_id, icu_api_key, supabase_uri]):
+            raise ValueError("Faltan variables de configuración en el archivo .env.")
+        pipeline = TrainingDataPipeline(
+            athlete_id=athlete_id,
+            icu_api_key=icu_api_key,
+            db_uri=supabase_uri,
+            fallback_db_uri=supabase_pooler_uri,
+        )
+        pipeline.sync_activities(days_back=days)
+        pipeline.close()
+
+    try:
+        await asyncio.get_event_loop().run_in_executor(None, _run_sync)
+        await update.message.reply_text(
+            "✅ Sincronización completada. ¡Ya puedes preguntarme sobre tu actividad!"
+        )
+    except Exception as e:
+        logger.error("Sync error for user %s: %s", user.id, e)
+        await update.message.reply_text(f"⚠️ Error durante la sincronización: {e}")
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -145,7 +193,17 @@ def main() -> None:
     app = Application.builder().token(token).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("reset", reset))
+    app.add_handler(CommandHandler("sync", sync))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    async def set_commands(_app):
+        await _app.bot.set_my_commands([
+            ("start", "Inicia el bot y muestra la ayuda"),
+            ("sync",  "Sincroniza actividades recientes (uso: /sync [días])"),
+            ("reset", "Borra el historial de conversación"),
+        ])
+
+    app.post_init = set_commands
 
     logger.info("Bot started. Press Ctrl+C to stop.")
     if ALLOWED_USER_IDS:

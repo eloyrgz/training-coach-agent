@@ -93,12 +93,13 @@ class TrainingDataPipeline:
                 distance = act.get('distance', 0.0)
                 duration = act.get('moving_time', 0)
                 elevation = act.get('total_elevation_gain', 0.0)
-                rpe = act.get('rpe')
+                rpe = act.get('icu_rpe') or act.get('rpe')
                 load = act.get('icu_training_load')
-                ctl = act.get('ctl')
-                atl = act.get('atl')
-                tsb = act.get('tsb')
-                
+                ctl = act.get('icu_ctl') or act.get('ctl')
+                atl = act.get('icu_atl') or act.get('atl')
+                # TSB is not returned by the API — compute it from CTL and ATL
+                tsb = round(ctl - atl, 6) if (ctl is not None and atl is not None) else None
+
                 # 1. Upsert quantitative metrics
                 upsert_query = """
                 INSERT INTO training_metrics 
@@ -106,11 +107,11 @@ class TrainingDataPipeline:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (activity_id) DO UPDATE SET
                     activity_name = EXCLUDED.activity_name,
-                    rpe = COALESCE(EXCLUDED.rpe, training_metrics.rpe),
-                    icu_load = COALESCE(EXCLUDED.icu_load, training_metrics.icu_load),
-                    fitness_ctl = COALESCE(EXCLUDED.fitness_ctl, training_metrics.fitness_ctl),
-                    fatigue_atl = COALESCE(EXCLUDED.fatigue_atl, training_metrics.fatigue_atl),
-                    form_tsb = COALESCE(EXCLUDED.form_tsb, training_metrics.form_tsb);
+                    rpe           = COALESCE(EXCLUDED.rpe, training_metrics.rpe),
+                    icu_load      = COALESCE(EXCLUDED.icu_load, training_metrics.icu_load),
+                    fitness_ctl   = EXCLUDED.fitness_ctl,
+                    fatigue_atl   = EXCLUDED.fatigue_atl,
+                    form_tsb      = EXCLUDED.form_tsb;
                 """
                 cur.execute(upsert_query, (activity_id, act_date, name, act_type, distance, duration, elevation, rpe, load, ctl, atl, tsb))
                 
