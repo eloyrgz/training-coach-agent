@@ -317,6 +317,16 @@ def compare_planned_vs_actual(target_date: Optional[str] = None) -> dict:
     return comparison
 
 
+@tool
+def get_medical_background() -> list:
+    """Get the athlete's stored medical background (prior injuries, surgeries, chronic conditions).
+    Use when the user asks about their injury history, medical conditions, or when providing injury advice."""
+    entries = memory.get_medical_background()
+    if not entries:
+        return [{"message": "No medical background stored."}]
+    return entries
+
+
 ALL_TOOLS = [
     get_latest_metrics,
     query_activities,
@@ -332,4 +342,5 @@ ALL_TOOLS = [
     get_scheduled_workouts,
     compare_planned_vs_actual,
     log_rpe,
+    get_medical_background,
 ]

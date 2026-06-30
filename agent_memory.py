@@ -410,5 +410,55 @@ class SupabaseAgentMemory:
             self.conn.rollback()
             return {"status": "error", "detail": str(e)}
 
+    def add_medical_background(self, text: str):
+        """Insert a medical background entry into injury_logs with log_type='medical_background'."""
+        try:
+            vector = self.encoder.encode(text).tolist()
+            with self._cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO injury_logs (log_date, log_type, original_text, embedding)
+                    VALUES (NOW()::date, 'medical_background', %s, %s::vector)
+                    RETURNING id;
+                    """,
+                    (text, str(vector)),
+                )
+                new_id = cur.fetchone()["id"]
+                self.conn.commit()
+            return {"status": "saved", "id": new_id}
+        except Exception as e:
+            print(f"⚠️ Error saving medical background: {e}")
+            self.conn.rollback()
+            return {"status": "error", "detail": str(e)}
+
+    def get_medical_background(self) -> list:
+        """Return all medical_background entries from injury_logs."""
+        try:
+            with self._cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, log_date::text as date, original_text as text
+                    FROM injury_logs
+                    WHERE log_type = 'medical_background'
+                    ORDER BY log_date DESC;
+                    """
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception as e:
+            print(f"⚠️ Error reading medical background: {e}")
+            return []
+
+    def clear_medical_background(self) -> dict:
+        """Delete all medical_background entries from injury_logs."""
+        try:
+            with self._cursor() as cur:
+                cur.execute("DELETE FROM injury_logs WHERE log_type = 'medical_background';")
+                self.conn.commit()
+            return {"status": "cleared"}
+        except Exception as e:
+            print(f"⚠️ Error clearing medical background: {e}")
+            self.conn.rollback()
+            return {"status": "error", "detail": str(e)}
+
     def close(self):
         self.conn.close()

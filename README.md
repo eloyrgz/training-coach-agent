@@ -39,7 +39,7 @@ sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector 
 | `coach_tools.py` | LangChain tool definitions exposed to the LLM — wraps `agent_memory.py` methods as callable tools |
 | `chat_agent.py` | Conversational agent — orchestrates the LLM + tool call loop; also runnable as a CLI (`python chat_agent.py`) |
 | `injury_agent.py` | LangGraph 3-node pipeline for structured injury risk evaluation (DataRetriever → RiskEvaluator → PrescriptionGenerator) |
-| `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history, `/sync`, `/reset` commands |
+| `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
 
 
 ---
@@ -83,6 +83,10 @@ SUPABASE_POOLER_DB_URI=postgresql://postgres.xxxx:password@aws-0-eu-west-1.poole
 OPENAI_API_KEY=sk-proj-your_openai_api_key
 OPENAI_MODEL=gpt-4o-mini
 
+# Optional: baseline medical history used by injury_agent.py CLI
+# (previous injuries, surgeries, relevant conditions)
+ATHLETE_MEDICAL_HISTORY="Neuroma pie derecho en 2024, recaídas con aumento brusco de carga"
+
 # --- TELEGRAM BOT CONFIG ---
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 # Optional: comma-separated Telegram user IDs allowed to use the bot
@@ -111,6 +115,24 @@ python sync_pipeline.py --days 7
 
 ```bash
 python chat_agent.py
+```
+
+### CLI injury-risk assessment
+
+```bash
+python injury_agent.py
+```
+
+Or pass the symptom query directly:
+
+```bash
+python injury_agent.py "Dolor 6/10 en antepié, inflamación, peor al correr más de 30 min"
+```
+
+Include one-off medical history in the same command:
+
+```bash
+python injury_agent.py --history "Neuroma en pie derecho en 2024" "Dolor 6/10 en antepié hoy"
 ```
 
 ---
@@ -155,6 +177,10 @@ Once the bot is running, the following commands are available in the Telegram ch
 | Command | Description |
 |---|---|
 | `/start` | Initialises the bot and shows help |
+      | `/medhist set <texto>` | Saves medical/injury background used by `/injury` |
+| `/medhist show` | Shows current saved medical history |
+| `/medhist clear` | Clears saved medical history |
+| `/injury <texto>` | Runs injury-risk assessment from symptoms + context |
 | `/sync` | Syncs the last 1 day from Intervals.icu into the database |
 | `/sync <N>` | Syncs the last N days (e.g. `/sync 7`) |
 | `/reset` | Clears the current conversation history |
@@ -248,6 +274,10 @@ Once the bot is running, the following commands are available in the Telegram ch
 | Command | Description |
 |---|---|
 | `/start` | Initialises the bot and shows help |
+| `/medhist set <texto>` | Saves medical/injury background used by `/injury` |
+| `/medhist show` | Shows current saved medical history |
+| `/medhist clear` | Clears saved medical history |
+| `/injury <texto>` | Runs injury-risk assessment from symptoms + context |
 | `/sync` | Syncs the last 1 day from Intervals.icu into the database |
 | `/sync <N>` | Syncs the last N days (e.g. `/sync 7`) |
 | `/reset` | Clears the current conversation history |
