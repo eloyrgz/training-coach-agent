@@ -281,3 +281,7 @@ Once the bot is running, the following commands are available in the Telegram ch
 | `/sync` | Syncs the last 1 day from Intervals.icu into the database |
 | `/sync <N>` | Syncs the last N days (e.g. `/sync 7`) |
 | `/reset` | Clears the current conversation history |
+
+
+Home Assistant Integration
+https://github.com/copilot/share/ca7512a6-0024-8054-b912-004080ca0835
