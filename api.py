@@ -14,6 +14,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
+from sync_pipeline import TrainingDataPipeline
 
 load_dotenv(override=True)
 
@@ -47,6 +48,16 @@ class ChatResponse(BaseModel):
     conversation_id: str
 
 
+class SyncRequest(BaseModel):
+    days: int = Field(default=1, ge=1, le=3650, description="Number of days to sync from Intervals.icu")
+
+
+class SyncResponse(BaseModel):
+    status: str
+    days: int
+    message: str
+
+
 # --- In-memory conversation store (keyed by conversation_id) ---
 
 _conversations: dict[str, list] = {}
@@ -66,6 +77,27 @@ def _trim_history(history: list) -> list:
 def _check_auth(authorization: str | None):
     if API_KEY and (not authorization or authorization != f"Bearer {API_KEY}"):
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+
+def _run_sync(days: int):
+    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+    icu_api_key = os.getenv("INTERVALS_API_KEY")
+    supabase_uri = os.getenv("SUPABASE_DB_URI")
+    supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
+
+    if not all([athlete_id, icu_api_key, supabase_uri]):
+        raise ValueError("Missing configuration in .env. Required: INTERVALS_ATHLETE_ID, INTERVALS_API_KEY, SUPABASE_DB_URI.")
+
+    pipeline = TrainingDataPipeline(
+        athlete_id=athlete_id,
+        icu_api_key=icu_api_key,
+        db_uri=supabase_uri,
+        fallback_db_uri=supabase_pooler_uri,
+    )
+    try:
+        pipeline.sync_activities(days_back=days)
+    finally:
+        pipeline.close()
 
 
 # --- Endpoints ---
@@ -100,3 +132,14 @@ def reset_conversation(conversation_id: str = "default", authorization: str | No
     _check_auth(authorization)
     _conversations.pop(conversation_id, None)
     return {"status": "cleared", "conversation_id": conversation_id}
+
+
+@app.post("/sync", response_model=SyncResponse)
+def sync(req: SyncRequest, authorization: str | None = None):
+    """Sync Intervals.icu activities into Supabase for the requested number of days."""
+    _check_auth(authorization)
+    try:
+        _run_sync(req.days)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sync error: {e}")
+    return SyncResponse(status="ok", days=req.days, message="Sync completed successfully.")

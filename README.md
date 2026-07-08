@@ -38,6 +38,7 @@ sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector 
 | `agent_memory.py` | Supabase DB access layer — all SQL queries used by the agent (activities, metrics, summaries, vector search) |
 | `coach_tools.py` | LangChain tool definitions exposed to the LLM — wraps `agent_memory.py` methods as callable tools |
 | `chat_agent.py` | Conversational agent — orchestrates the LLM + tool call loop; also runnable as a CLI (`python chat_agent.py`) |
+| `api.py` | FastAPI HTTP interface for the coach agent (`/health`, `/chat`, `/chat/reset`, `/sync`) with optional Bearer auth |
 | `injury_agent.py` | LangGraph 3-node pipeline for structured injury risk evaluation (DataRetriever → RiskEvaluator → PrescriptionGenerator) |
 | `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
 
@@ -83,6 +84,10 @@ SUPABASE_POOLER_DB_URI=postgresql://postgres.xxxx:password@aws-0-eu-west-1.poole
 OPENAI_API_KEY=sk-proj-your_openai_api_key
 OPENAI_MODEL=gpt-4o-mini
 
+# --- FASTAPI CONFIG ---
+# Optional shared secret for Authorization: Bearer <COACH_API_KEY>
+COACH_API_KEY=your_long_random_secret
+
 # Optional: baseline medical history used by injury_agent.py CLI
 # (previous injuries, surgeries, relevant conditions)
 ATHLETE_MEDICAL_HISTORY="Neuroma pie derecho en 2024, recaídas con aumento brusco de carga"
@@ -115,6 +120,44 @@ python sync_pipeline.py --days 7
 
 ```bash
 python chat_agent.py
+```
+
+### FastAPI server
+
+```bash
+uvicorn api:app --host 0.0.0.0 --port 8000
+```
+
+OpenAPI docs:
+
+- Swagger UI: `http://localhost:8000/docs`
+- ReDoc: `http://localhost:8000/redoc`
+
+Main endpoints:
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Health check (`{"status": "ok"}`) |
+| `POST` | `/chat` | Sends a coach message and returns reply + `conversation_id` |
+| `POST` | `/chat/reset` | Clears in-memory history for a `conversation_id` |
+| `POST` | `/sync` | Runs Intervals.icu → Supabase sync for the last `N` days |
+
+Example request:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $COACH_API_KEY" \
+  -d '{"message":"How hard should I train today?","conversation_id":"demo"}'
+```
+
+Sync example:
+
+```bash
+curl -X POST http://localhost:8000/sync \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $COACH_API_KEY" \
+  -d '{"days":7}'
 ```
 
 ### CLI injury-risk assessment

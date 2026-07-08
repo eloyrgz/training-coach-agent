@@ -13,6 +13,7 @@ Example configuration.yaml
 training_coach:
   agent_url: "https://your-agent.example.com/assistant"  # required: your agent HTTP endpoint
   agent_secret: "LONG_RANDOM_SECRET"                     # optional: Bearer token used by integration
+  tts_entity: "tts.google_en_com"                        # optional: preferred TTS entity for tts.speak
 
 input_text:
   coach_query:
@@ -45,5 +46,7 @@ Example automation (automations.yaml)
 
 Notes
 - The component expects your agent to accept POST { "text": "..." } and return JSON { "reply": "..." } or plain text.
+- For voice playback, the integration prefers modern `tts.speak`. If `tts_entity` is omitted, it auto-selects the first available `tts.*` entity.
+- If the selected `media_player` is missing or unavailable, the integration skips TTS and posts a persistent notification instead.
 - Use HTTPS for the agent_url and verify the `agent_secret` Bearer token on the agent side.
 - If Home Assistant and your agent run in the same Python environment, you can modify the component to import the agent directly instead of calling over HTTP.

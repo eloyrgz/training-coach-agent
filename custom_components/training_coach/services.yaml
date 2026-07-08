@@ -1,0 +1,18 @@
+query:
+  name: Query Training Coach
+  description: Send a text query to the training coach endpoint and get a response.
+  fields:
+    text:
+      name: Query text
+      description: Message to send to the training coach.
+      required: true
+      example: Should I run today if my foot hurts?
+      selector:
+        text:
+    media_player:
+      name: Media player
+      description: Optional media player to speak the response with TTS.
+      required: false
+      selector:
+        entity:
+          domain: media_player
