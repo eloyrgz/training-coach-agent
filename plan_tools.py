@@ -11,6 +11,8 @@ from typing import Optional
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 
+from intervals_icu_client import IntervalsClient, IntervalsAPIError
+
 # Add submodule to sys.path so plan_generator package is importable
 _SUBMODULE_PATH = os.path.join(os.path.dirname(__file__), "plan_generator")
 if _SUBMODULE_PATH not in sys.path:
@@ -238,17 +240,14 @@ def push_plan_to_intervals(
 
     Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in environment.
     """
-    from plan_generator.intervals_client import (
-        create_events_bulk,
-        get_api_key,
-        get_athlete_id,
-    )
     from datetime import date, timedelta
 
-    api_key = get_api_key()
-    athlete_id = get_athlete_id()
+    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+    api_key = os.getenv("INTERVALS_API_KEY")
     if not api_key or not athlete_id:
         return {"error": "INTERVALS_API_KEY and INTERVALS_ATHLETE_ID must be set in .env"}
+
+    client = IntervalsClient(athlete_id=athlete_id, api_key=api_key)
 
     schema = get_plan_schema()
     db = _get_db()
@@ -311,7 +310,7 @@ def push_plan_to_intervals(
         batch_size = 50
         for i in range(0, len(events), batch_size):
             batch = events[i:i + batch_size]
-            result = create_events_bulk(athlete_id, api_key, batch)
+            result = client.create_events_bulk(batch)
             created.extend(result if isinstance(result, list) else [result])
 
         return {

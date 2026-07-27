@@ -1,12 +1,13 @@
 import os
 import sys
 import socket
-import requests
 import psycopg2
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from urllib.parse import urlparse
+
+from intervals_icu_client import IntervalsClient, IntervalsAPIError
 
 # Load environment variables from the .env file
 load_dotenv(override=True)
@@ -14,8 +15,7 @@ load_dotenv(override=True)
 class TrainingDataPipeline:
     def __init__(self, athlete_id: str, icu_api_key: str, db_uri: str, fallback_db_uri: str | None = None):
         self.athlete_id = athlete_id
-        self.icu_auth = ('API_KEY', icu_api_key)
-        self.icu_base_url = f"https://intervals.icu/api/v1/athlete/{athlete_id}"
+        self.icu_client = IntervalsClient(athlete_id=athlete_id, api_key=icu_api_key)
         self.db_conn = self._connect_with_fallback(db_uri, fallback_db_uri)
         
         print("Loading local embedding model (all-MiniLM-L6-v2)...")
@@ -77,12 +77,10 @@ class TrainingDataPipeline:
         start_date = end_date - timedelta(days=days_back)
         
         print(f"Fetching activities from Intervals.icu since {start_date}...")
-        url = f"{self.icu_base_url}/activities"
-        params = {"oldest": start_date.isoformat(), "newest": end_date.isoformat()}
-        
-        response = requests.get(url, auth=self.icu_auth, params=params)
-        response.raise_for_status()
-        activities = response.json()
+        activities = self.icu_client.get_activities(
+            oldest=start_date.isoformat(),
+            newest=end_date.isoformat(),
+        )
         
         with self.db_conn.cursor() as cur:
             for act in activities:

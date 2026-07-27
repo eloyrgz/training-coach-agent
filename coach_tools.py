@@ -1,13 +1,22 @@
 import os
-import requests
 from datetime import date, timedelta
 from typing import Optional
 from langchain_core.tools import tool
 from dotenv import load_dotenv
 
 from agent_memory import SupabaseAgentMemory
+from intervals_icu_client import IntervalsClient, IntervalsAPIError
 
 load_dotenv(override=True)
+
+
+def _get_icu_client() -> IntervalsClient | None:
+    """Return an IntervalsClient if credentials are configured, else None."""
+    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+    api_key = os.getenv("INTERVALS_API_KEY")
+    if athlete_id and api_key:
+        return IntervalsClient(athlete_id=athlete_id, api_key=api_key)
+    return None
 
 memory = SupabaseAgentMemory()
 
@@ -108,24 +117,17 @@ def add_training_note(note: str, note_date: Optional[str] = None) -> dict:
     local_result = memory.add_training_note(note, target_date)
 
     # 2. Also post as a comment on the Intervals.icu activity (if one exists that day)
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
     icu_result = {"intervals_icu_comment": False}
+    client = _get_icu_client()
 
-    if athlete_id and api_key:
+    if client:
         activities = memory.get_activity_ids_for_date(target_date)
         if activities:
             act_id = activities[0]["activity_id"]
             try:
-                r = requests.post(
-                    f"https://intervals.icu/api/v1/activity/{act_id}/messages",
-                    auth=("API_KEY", api_key),
-                    json={"message": note},
-                    timeout=10,
-                )
-                r.raise_for_status()
+                client.post_activity_message(act_id, note)
                 icu_result = {"intervals_icu_comment": True, "activity": activities[0]["activity_name"]}
-            except requests.RequestException as e:
+            except IntervalsAPIError as e:
                 icu_result = {"intervals_icu_comment": False, "intervals_icu_error": str(e)}
 
     return {**local_result, **icu_result}
@@ -139,23 +141,17 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
     start_date/end_date: YYYY-MM-DD. Defaults to today when not provided.
     Returns planned workout name, type, date, planned distance, duration, and description.
     """
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
-    if not athlete_id or not api_key:
+    client = _get_icu_client()
+    if not client:
         return [{"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY in environment."}]
 
     today = date.today().isoformat()
     oldest = start_date or today
     newest = end_date or today
 
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events"
-    params = {"oldest": oldest, "newest": newest}
-
     try:
-        response = requests.get(url, auth=("API_KEY", api_key), params=params, timeout=10)
-        response.raise_for_status()
-        events = response.json()
-    except requests.RequestException as e:
+        events = client.get_events(oldest=oldest, newest=newest)
+    except IntervalsAPIError as e:
         return [{"error": f"Failed to fetch scheduled workouts: {e}"}]
 
     results = []
@@ -177,17 +173,12 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
 
 def _fetch_planned(target_date: str) -> list:
     """Internal helper: fetch Intervals.icu planned events for a single date."""
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
-    if not athlete_id or not api_key:
+    client = _get_icu_client()
+    if not client:
         return []
-    url = f"https://intervals.icu/api/v1/athlete/{athlete_id}/events"
     try:
-        r = requests.get(url, auth=("API_KEY", api_key),
-                         params={"oldest": target_date, "newest": target_date}, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except requests.RequestException:
+        return client.get_events(oldest=target_date, newest=target_date)
+    except IntervalsAPIError:
         return []
 
 
@@ -203,9 +194,8 @@ def log_rpe(rpe: int, target_date: Optional[str] = None, activity_name: Optional
     if not 1 <= rpe <= 10:
         return {"error": "RPE must be between 1 and 10."}
 
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
-    if not athlete_id or not api_key:
+    client = _get_icu_client()
+    if not client:
         return {"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY."}
 
     target = target_date or date.today().isoformat()
@@ -227,17 +217,10 @@ def log_rpe(rpe: int, target_date: Optional[str] = None, activity_name: Optional
     name = act["activity_name"]
 
     # --- Update Intervals.icu ---
-    url = f"https://intervals.icu/api/v1/activity/{activity_id}"
     try:
-        r = requests.put(
-            url,
-            auth=("API_KEY", api_key),
-            json={"icu_rpe": rpe},
-            timeout=10,
-        )
-        r.raise_for_status()
+        client.update_activity(activity_id, {"icu_rpe": rpe})
         icu_ok = True
-    except requests.RequestException as e:
+    except IntervalsAPIError as e:
         icu_ok = False
         icu_error = str(e)
 
