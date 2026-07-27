@@ -49,6 +49,7 @@ intervals-icu-client  ◄── shared package (github.com/eloyrgz/intervals-icu
 | `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
 | `plan_tools.py` | Plan generation tools exposed to the LLM — wraps `plan_generator` submodule as callable agent tools |
 | `plan_generator/` | Git submodule — [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator) for training plan creation, workout library management, and Intervals.icu plan export |
+| `custom_components/` | Optional Home Assistant custom integration — see [docs/HA_INTEGRATION.md](docs/HA_INTEGRATION.md) |
 | *(external)* | [intervals-icu-client](https://github.com/eloyrgz/intervals-icu-client) — shared Intervals.icu API client used by sync_pipeline, coach_tools, and plan_tools |
 
 
@@ -260,7 +261,7 @@ Once the bot is running, the following commands are available in the Telegram ch
 | Command | Description |
 |---|---|
 | `/start` | Initialises the bot and shows help |
-      | `/medhist set <texto>` | Saves medical/injury background used by `/injury` |
+| `/medhist set <texto>` | Saves medical/injury background used by `/injury` |
 | `/medhist show` | Shows current saved medical history |
 | `/medhist clear` | Clears saved medical history |
 | `/injury <texto>` | Runs injury-risk assessment from symptoms + context |
@@ -273,98 +274,3 @@ Once the bot is running, the following commands are available in the Telegram ch
 - Telegram bot (`telegram_bot.py`): keeps per-user in-memory conversation history capped at the last 10 turns (10 user messages + 10 bot replies). Use `/reset` to clear it.
 - CLI chat (`chat_agent.py`): keeps in-memory conversation history for the whole process without an explicit turn cap.
 - In both modes, history is not persisted across process restarts.
-
-Create a `.env` file in the root directory of your project using the following layout (ensure it is clean of duplicate physical quotation marks or trailing spaces):
-
-```env
-# --- INTERVALS.ICU CONFIG ---
-# Athlete ID (Include the 'i' prefix if required by your API_KEY authorization type)
-INTERVALS_ATHLETE_ID=i87571
-INTERVALS_API_KEY=your_25_character_api_key
-
-# --- SUPABASE DATABASE CONFIG ---
-# Use the Pooler host (IPv4) if your local ISP network has strict IPv6 routing constraints
-SUPABASE_DB_URI=postgresql://postgres.xxxx:password@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
-SUPABASE_POOLER_DB_URI=postgresql://postgres.xxxx:password@aws-0-eu-west-1.pooler.supabase.com:6543/postgres
-
-# --- OPENAI API CONFIG ---
-OPENAI_API_KEY=sk-proj-your_openai_api_key
-OPENAI_MODEL=gpt-4o-mini
-
-# --- TELEGRAM BOT CONFIG ---
-TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-# Optional: comma-separated Telegram user IDs allowed to use the bot
-# Leave empty to allow anyone (not recommended in production)
-TELEGRAM_ALLOWED_USER_IDS=123456789
-```
-
----
-
-## 🚀 Running the Services
-
-### Initial database backfill (run once)
-
-```bash
-source .venv/bin/activate
-python sync_pipeline.py --days 3650
-```
-
-### Manual on-demand sync (incremental)
-
-```bash
-python sync_pipeline.py --days 7
-```
-
----
-
-## 🔧 Systemd Services (Linux)
-
-A user-level systemd service manages the long-running bot process. The service file lives in `~/.config/systemd/user/`.
-
-### Installed services
-
-| Service | File | Description |
-|---|---|---|
-| `training-coach-telegram.service` | `~/.config/systemd/user/training-coach-telegram.service` | Telegram bot (`telegram_bot.py`) — runs permanently, auto-restarts on crash |
-
-### Common commands
-
-```bash
-# Check status
-systemctl --user status training-coach-telegram.service
-
-# Restart after code changes
-systemctl --user restart training-coach-telegram.service
-
-# Stop / Start
-systemctl --user stop training-coach-telegram.service
-systemctl --user start training-coach-telegram.service
-
-# Enable auto-start on login
-systemctl --user enable training-coach-telegram.service
-
-# Follow live logs
-journalctl --user -u training-coach-telegram.service -f
-
-# Last 50 log lines
-journalctl --user -u training-coach-telegram.service -n 50 --no-pager
-```
-
-### Telegram bot commands
-
-Once the bot is running, the following commands are available in the Telegram chat:
-
-| Command | Description |
-|---|---|
-| `/start` | Initialises the bot and shows help |
-| `/medhist set <texto>` | Saves medical/injury background used by `/injury` |
-| `/medhist show` | Shows current saved medical history |
-| `/medhist clear` | Clears saved medical history |
-| `/injury <texto>` | Runs injury-risk assessment from symptoms + context |
-| `/sync` | Syncs the last 1 day from Intervals.icu into the database |
-| `/sync <N>` | Syncs the last N days (e.g. `/sync 7`) |
-| `/reset` | Clears the current conversation history |
-
-
-Home Assistant Integration
-https://github.com/copilot/share/ca7512a6-0024-8054-b912-004080ca0835
