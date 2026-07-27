@@ -1,0 +1,3 @@
+[submodule "plan_generator"]
+	path = plan_generator
+	url = https://github.com/eloyrgz/eighty-twenty-plan-generator.git

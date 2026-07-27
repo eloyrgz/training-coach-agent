@@ -9,6 +9,9 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, Tool
 from openai import RateLimitError
 
 from coach_tools import ALL_TOOLS, memory as db_memory
+from plan_tools import PLAN_TOOLS
+
+ALL_TOOLS = ALL_TOOLS + PLAN_TOOLS
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 load_dotenv(override=True)
@@ -63,6 +66,13 @@ Guidelines:
 - For adding notes/sensations use add_training_note:
   'sentí dolor en la rodilla/me sentí bien/añade nota' → add_training_note(note=<text>, note_date='{today_iso}')
   Saves to local DB (searchable) AND posts as comment on the Intervals.icu activity.
+- For TRAINING PLAN generation and management:
+  'genera un plan/crear plan de entrenamiento' → first call list_blueprints to show options, then generate_training_plan
+  'mis planes/planes generados' → list_plans
+  'detalle del plan/resumen del plan' → get_plan_summary
+  'sube el plan a Intervals/push plan' → push_plan_to_intervals
+  When generating a plan, use the athlete's current CTL from get_latest_metrics as the current_ctl parameter.
+  Available blueprints represent different training levels (L1=beginner, L2=intermediate).
 
 Respond in Spanish unless the user writes in another language. Be concise and data-driven."""
 

@@ -41,6 +41,8 @@ sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector 
 | `api.py` | FastAPI HTTP interface for the coach agent (`/health`, `/chat`, `/chat/reset`, `/sync`) with optional Bearer auth |
 | `injury_agent.py` | LangGraph 3-node pipeline for structured injury risk evaluation (DataRetriever → RiskEvaluator → PrescriptionGenerator) |
 | `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
+| `plan_tools.py` | Plan generation tools exposed to the LLM — wraps `plan_generator` submodule as callable agent tools |
+| `plan_generator/` | Git submodule — [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator) for training plan creation, workout library management, and Intervals.icu plan export |
 
 
 ---
@@ -56,12 +58,19 @@ sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector 
 ## ⚙️ Installation
 
 ```bash
-git clone <repo-url>
+git clone --recurse-submodules <repo-url>
 cd training-coach-agent
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+> **Note:** The `plan_generator/` directory is a git submodule pointing to
+> [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator).
+> If you cloned without `--recurse-submodules`, run:
+> ```bash
+> git submodule update --init --recursive
+> ```
 
 ---
 
@@ -97,6 +106,10 @@ TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
 # Optional: comma-separated Telegram user IDs allowed to use the bot
 # Leave empty to allow anyone (not recommended in production)
 TELEGRAM_ALLOWED_USER_IDS=123456789
+
+# --- PLAN GENERATOR CONFIG ---
+# SQL schema for plan generator tables (default: plan_gen)
+PLAN_GEN_SCHEMA=plan_gen
 ```
 
 ---
@@ -177,6 +190,26 @@ Include one-off medical history in the same command:
 ```bash
 python injury_agent.py --history "Neuroma en pie derecho en 2024" "Dolor 6/10 en antepié hoy"
 ```
+
+### Plan Generator (CLI)
+
+The plan generator is available as a submodule CLI and also exposed to the conversational agent as tools.
+
+```bash
+# Initialize plan generator schema
+python -m plan_generator.plan_generator.cli init-db
+
+# Import workout library
+python -m plan_generator.plan_generator.cli import-workouts --zip plan_generator/data/workouts_from_levels.zip
+
+# Generate a plan (CLI)
+python -m plan_generator.plan_generator.cli generate-plan --blueprint 4 --label "My Ultra 50K" --hours 7.0
+
+# Show summary
+python -m plan_generator.plan_generator.cli summary
+```
+
+The conversational agent can also generate and manage plans via natural language (e.g., "genera un plan de 16 semanas a 7 horas semanales").
 
 ---
 
