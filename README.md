@@ -217,7 +217,16 @@ python -m plan_generator.plan_generator.cli generate-plan --blueprint 4 --label 
 python -m plan_generator.plan_generator.cli summary
 ```
 
-The conversational agent can also generate and manage plans via natural language (e.g., "genera un plan de 16 semanas a 7 horas semanales").
+The conversational agent can also generate and manage plans via natural language. It acts as a plan assistant, guiding you through the configuration step by step:
+
+| Example message | What happens |
+|---|---|
+| "quiero crear un plan de entrenamiento" | Starts the plan assistant: fetches your CTL, shows blueprints, asks preferences |
+| "genera un plan rápido de 7 horas semanales" | Quick plan with defaults, only confirms essentials |
+| "mis planes" / "planes generados" | Lists existing generated plans |
+| "resumen del plan" / "detalle del plan 13" | Week-by-week summary of a plan |
+| "sube el plan a Intervals" | Pushes the plan to your Intervals.icu calendar |
+| "borra el último plan" / "elimina el plan 13" | Deletes the plan from DB and Intervals.icu calendar |
 
 ---
 
