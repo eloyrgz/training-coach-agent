@@ -1,6 +1,6 @@
 # 🤖 Training Coach & Injury Prevention Agent
 
-This project is an **Intelligent Endurance Training Agent** built using graph architectures (`LangGraph`) and vector databases (`Supabase + pgvector`). The system automatically synchronizes physiological metrics and training logs from **Intervals.icu**, computes text embeddings locally, and lets you query your training data conversationally via a Telegram bot powered by OpenAI.
+This project is an **Intelligent Endurance Training Agent** built using graph architectures (`LangGraph`) and vector databases (`Supabase + pgvector`). The system automatically synchronizes physiological metrics and training logs from **Intervals.icu**, computes text embeddings locally, generates personalized training plans, and lets you query your training data conversationally via a Telegram bot powered by OpenAI.
 
 ---
 
@@ -10,22 +10,28 @@ This project is an **Intelligent Endurance Training Agent** built using graph ar
 Intervals.icu API
       │
       ▼
-sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector embeddings)
-                              │
-                              ▼
-             agent_memory.py (DB access layer)
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-             chat_agent.py        injury_agent.py
-          (conversational Q&A)   (LangGraph risk eval)
-                    │
-               coach_tools.py
-            (LangChain tool set)
-                    │
-                    ▼
-            telegram_bot.py
-          (Telegram interface)
+intervals-icu-client  ◄── shared package (github.com/eloyrgz/intervals-icu-client)
+      │
+      ├──► sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector embeddings)
+      │                                │
+      │                                ▼
+      │               agent_memory.py (DB access layer)
+      │                                │
+      │                      ┌─────────┴─────────┐
+      │                      ▼                   ▼
+      │               chat_agent.py        injury_agent.py
+      │            (conversational Q&A)   (LangGraph risk eval)
+      │                      │
+      │          ┌───────────┼───────────┐
+      │          ▼           ▼           ▼
+      │    coach_tools.py  plan_tools.py
+      │    (15 tools)      (5 tools)
+      │                      │
+      │                      ▼
+      │              plan_generator/  (git submodule)
+      │              └── plan_engine, workout_library, etc.
+      │
+      └──► telegram_bot.py (Telegram interface)
 ```
 
 ---
@@ -43,6 +49,7 @@ sync_pipeline.py  ──► Supabase (training_metrics + injury_logs + pgvector 
 | `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
 | `plan_tools.py` | Plan generation tools exposed to the LLM — wraps `plan_generator` submodule as callable agent tools |
 | `plan_generator/` | Git submodule — [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator) for training plan creation, workout library management, and Intervals.icu plan export |
+| *(external)* | [intervals-icu-client](https://github.com/eloyrgz/intervals-icu-client) — shared Intervals.icu API client used by sync_pipeline, coach_tools, and plan_tools |
 
 
 ---
