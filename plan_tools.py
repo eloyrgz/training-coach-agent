@@ -324,10 +324,88 @@ def push_plan_to_intervals(
         db.close()
 
 
+@tool
+def delete_plan(instance_id: Optional[int] = None) -> dict:
+    """Delete a generated training plan and all its associated data.
+    If instance_id is omitted, deletes the most recent plan.
+    Also removes the corresponding events from Intervals.icu if they were pushed.
+
+    Returns the deleted plan's id and label.
+    """
+    schema = get_plan_schema()
+    db = _get_db()
+    try:
+        # Resolve instance
+        if instance_id is None:
+            rows = db.fetchall(
+                f"SELECT id, athlete_label FROM {schema}.plan_instances ORDER BY id DESC LIMIT 1"
+            )
+        else:
+            rows = db.fetchall(
+                f"SELECT id, athlete_label FROM {schema}.plan_instances WHERE id = %s",
+                (instance_id,),
+            )
+
+        if not rows:
+            return {"error": f"No plan instance found{f' with id={instance_id}' if instance_id else ''}"}
+
+        plan_id, label = rows[0]
+
+        # Collect external_ids for Intervals.icu cleanup
+        workout_rows = db.fetchall(
+            f"""
+            SELECT week_number, day_name, workout_uid
+            FROM {schema}.plan_instance_workouts
+            WHERE plan_instance_id = %s
+            """,
+            (plan_id,),
+        )
+        external_ids = [
+            f"plan_{plan_id}_w{r[0]}_{r[1]}_{r[2]}" for r in workout_rows
+        ]
+
+        # Delete from DB (cascade: workouts and weeks)
+        db.execute(
+            f"DELETE FROM {schema}.plan_instance_workouts WHERE plan_instance_id = %s",
+            (plan_id,),
+        )
+        db.execute(
+            f"DELETE FROM {schema}.plan_instance_weeks WHERE plan_instance_id = %s",
+            (plan_id,),
+        )
+        db.execute(
+            f"DELETE FROM {schema}.plan_instances WHERE id = %s",
+            (plan_id,),
+        )
+
+        # Try to remove from Intervals.icu calendar
+        icu_deleted = 0
+        athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+        api_key = os.getenv("INTERVALS_API_KEY")
+        if athlete_id and api_key and external_ids:
+            try:
+                client = IntervalsClient(athlete_id=athlete_id, api_key=api_key)
+                client.delete_events_bulk(external_ids)
+                icu_deleted = len(external_ids)
+            except IntervalsAPIError:
+                pass  # Best-effort cleanup
+
+        return {
+            "status": "ok",
+            "deleted_plan_id": plan_id,
+            "label": label,
+            "workouts_removed": len(workout_rows),
+            "intervals_events_removed": icu_deleted,
+        }
+    finally:
+        db.close()
+
+
 PLAN_TOOLS = [
     list_blueprints,
     generate_training_plan,
     list_plans,
     get_plan_summary,
     push_plan_to_intervals,
+    delete_plan,
 ]
