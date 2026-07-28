@@ -344,13 +344,14 @@ def push_plan_to_intervals(
                 "start_date_local": f"{event_date.isoformat()}T00:00:00",
                 "category": "WORKOUT",
                 "type": (remote.get("type") if remote else None) or "Run",
-                "name": name or f"{wtype} workout",
-                "description": notes or "",
-                "moving_time": int((duration or 60) * 60),
+                "name": (remote.get("name") if remote else None) or name or f"{wtype} workout",
+                "description": (remote.get("description") if remote else None) or notes or "",
+                "moving_time": (remote.get("moving_time") if remote else None) or int((duration or 60) * 60),
                 "external_id": f"plan_{instance_id}_w{week_num}_{day_name}_{workout_uid}",
             }
-            if remote and remote.get("id"):
-                event["workout_id"] = remote["id"]
+            if remote:
+                if remote.get("workout_doc"):
+                    event["workout_doc"] = remote["workout_doc"]
                 matched += 1
             events.append(event)
 
