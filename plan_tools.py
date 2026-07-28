@@ -384,31 +384,23 @@ def push_plan_to_intervals(
             wk_num, source_wk, phase, target_h, is_recovery = wr
             monday = plan_start + timedelta(weeks=wk_num - 1)
 
-            # Resolve note text from CSV via source week mapping
+            # Resolve note text and phase from CSV via source week mapping
             note_text = ""
+            csv_phase = ""
             source_key = source_wk if source_wk is not None else wk_num
             csv_info = weekly_notes_csv.get(source_key)
             if csv_info:
                 note_text = csv_info["note"]
+                csv_phase = csv_info["phase_name"]
 
-            title = f"Week {wk_num} — {phase}" if phase else f"Week {wk_num}"
-            hours_str = f"{float(target_h):.1f}h" if target_h else ""
-            if is_recovery:
-                title += " (Recovery)"
-            if hours_str:
-                title += f" [{hours_str}]"
-
-            description_parts = []
-            if note_text:
-                description_parts.append(note_text)
-            if not description_parts:
-                description_parts.append(f"Phase: {phase}" if phase else "")
+            phase_label = csv_phase or phase or ""
+            title = f"Week {wk_num} - {phase_label}" if phase_label else f"Week {wk_num}"
 
             note_events.append({
                 "start_date_local": f"{monday.isoformat()}T00:00:00",
                 "category": "NOTE",
                 "name": title,
-                "description": "\n".join(p for p in description_parts if p),
+                "description": note_text,
                 "for_week": True,
                 "external_id": f"plan_{instance_id}_note_w{wk_num}",
             })
