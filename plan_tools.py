@@ -298,7 +298,7 @@ def push_plan_to_intervals(
             event = {
                 "start_date_local": event_date.isoformat(),
                 "category": "WORKOUT",
-                "type": wtype or "Run",
+                "type": "Run",
                 "name": name or f"{wtype} workout",
                 "description": notes or "",
                 "moving_time": int((duration or 60) * 60),
