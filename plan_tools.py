@@ -5,8 +5,6 @@ so the chat agent can generate, list, and manage training plans conversationally
 """
 from __future__ import annotations
 
-import csv
-import re
 import sys
 import os
 from pathlib import Path
@@ -23,6 +21,7 @@ if _SUBMODULE_PATH not in sys.path:
 
 from plan_generator.db import PlanGeneratorDB
 from plan_generator.config import get_db_uri, get_plan_schema
+from plan_generator.intervals_push import build_intervals_lookup, build_plan_events
 from plan_generator.plan_engine import generate_plan as _engine_generate_plan
 
 load_dotenv(override=True)
@@ -30,19 +29,6 @@ load_dotenv(override=True)
 
 def _get_db() -> PlanGeneratorDB:
     return PlanGeneratorDB(get_db_uri())
-
-
-def _extract_workout_code(name: str | None) -> str | None:
-    """Extract a workout code like RF5, RRE2, RMI4 from a workout name."""
-    text = (name or "").upper()
-    matches = re.findall(r"\b([A-Z]{2,4}\d{1,3})\b", text)
-    for code in matches:
-        if code.startswith("WK"):
-            continue
-        return code
-    if matches:
-        return matches[0]
-    return None
 
 
 @tool
@@ -284,22 +270,6 @@ def push_plan_to_intervals(
                 return {"error": "No plan instances found"}
             instance_id = rows[0][0]
 
-        # Get workouts for this plan
-        workouts = db.fetchall(
-            f"""
-            SELECT w.week_number, w.day_name, w.workout_uid, w.notes,
-                   l.workout_name, l.workout_type, l.duration_minutes
-            FROM {schema}.plan_instance_workouts w
-            LEFT JOIN {schema}.workout_library l ON l.workout_uid = w.workout_uid
-            WHERE w.plan_instance_id = %s
-            ORDER BY w.week_number, w.day_name
-            """,
-            (instance_id,),
-        )
-
-        if not workouts:
-            return {"error": f"No workouts found for plan instance {instance_id}"}
-
         # Compute start date (default: next Monday)
         if start_date:
             plan_start = date.fromisoformat(start_date)
@@ -308,103 +278,27 @@ def push_plan_to_intervals(
             days_until_monday = (7 - today.weekday()) % 7 or 7
             plan_start = today + timedelta(days=days_until_monday)
 
-        # Map day names to offsets (Mon=0, Sun=6)
-        day_offsets = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
-
-        # Fetch Intervals.icu workout library and build lookup by code/name
+        # Fetch Intervals.icu workout library and build lookup
         remote_workouts = client.get_workouts()
-        if folder_id is not None:
-            remote_workouts = [w for w in remote_workouts if w.get("folder_id") == folder_id]
-        library_by_code: dict[str, dict] = {}
-        library_by_name: dict[str, dict] = {}
-        for rw in remote_workouts:
-            rw_name = str(rw.get("name") or "").strip()
-            if not rw_name:
-                continue
-            library_by_name.setdefault(rw_name.upper(), rw)
-            code = _extract_workout_code(rw_name)
-            if code:
-                library_by_code.setdefault(code.upper(), rw)
+        lookup = build_intervals_lookup(remote_workouts, folder_id=folder_id)
 
-        matched = 0
-        # Build events
-        events = []
-        for wo in workouts:
-            week_num, day_name, workout_uid, notes, name, wtype, duration = wo
-            day_offset = day_offsets.get(day_name, 0)
-            event_date = plan_start + timedelta(weeks=week_num - 1, days=day_offset)
-
-            # Try to match to a library workout by code then name
-            remote = None
-            plan_code = _extract_workout_code(name)
-            if plan_code:
-                remote = library_by_code.get(plan_code.upper())
-            if remote is None and name:
-                remote = library_by_name.get(name.upper())
-
-            event = {
-                "start_date_local": f"{event_date.isoformat()}T00:00:00",
-                "category": "WORKOUT",
-                "type": (remote.get("type") if remote else None) or "Run",
-                "name": (remote.get("name") if remote else None) or name or f"{wtype} workout",
-                "description": (remote.get("description") if remote else None) or notes or "",
-                "moving_time": (remote.get("moving_time") if remote else None) or int((duration or 60) * 60),
-                "external_id": f"plan_{instance_id}_w{week_num}_{day_name}_{workout_uid}",
-            }
-            if remote:
-                if remote.get("workout_doc"):
-                    event["workout_doc"] = remote["workout_doc"]
-                matched += 1
-            events.append(event)
-
-        # Build weekly NOTE events
-        week_rows = db.fetchall(
-            f"""
-            SELECT week_number, source_week_number, phase_name, target_hours, is_recovery
-            FROM {schema}.plan_instance_weeks
-            WHERE plan_instance_id = %s
-            ORDER BY week_number
-            """,
-            (instance_id,),
+        # Build all events using shared logic
+        notes_path = Path(__file__).parent / "plan_generator" / "data" / "weekly_notes.csv"
+        result = build_plan_events(
+            db=db,
+            schema=schema,
+            instance_id=instance_id,
+            plan_start=plan_start,
+            lookup=lookup,
+            weekly_notes_csv_path=notes_path,
         )
 
-        # Load weekly notes CSV if available
-        weekly_notes_csv: dict[int, dict[str, str]] = {}
-        notes_path = Path(__file__).parent / "plan_generator" / "data" / "weekly_notes.csv"
-        if notes_path.exists():
-            with notes_path.open(encoding="utf-8", newline="") as fh:
-                for row in csv.DictReader(fh):
-                    weekly_notes_csv[int(row["week_number"])] = {
-                        "phase_name": (row.get("phase_name") or "").strip(),
-                        "note": (row.get("note") or "").strip(),
-                    }
+        if result.get("error"):
+            return {"error": result["error"]}
 
-        note_events = []
-        for wr in week_rows:
-            wk_num, source_wk, phase, target_h, is_recovery = wr
-            monday = plan_start + timedelta(weeks=wk_num - 1)
-
-            # Resolve note text and phase from CSV via source week mapping
-            note_text = ""
-            csv_phase = ""
-            source_key = source_wk if source_wk is not None else wk_num
-            csv_info = weekly_notes_csv.get(source_key)
-            if csv_info:
-                note_text = csv_info["note"]
-                csv_phase = csv_info["phase_name"]
-
-            phase_label = csv_phase or phase or ""
-            title = f"Week {wk_num} - {phase_label}" if phase_label else f"Week {wk_num}"
-
-            note_events.append({
-                "start_date_local": f"{monday.isoformat()}T00:00:00",
-                "category": "NOTE",
-                "name": title,
-                "description": note_text,
-                "for_week": True,
-                "external_id": f"plan_{instance_id}_note_w{wk_num}",
-            })
-
+        events = result["events"]
+        note_events = result["note_events"]
+        matched = result["matched_count"]
         all_events = events + note_events
 
         # Push in batches of 50
@@ -412,8 +306,8 @@ def push_plan_to_intervals(
         batch_size = 50
         for i in range(0, len(all_events), batch_size):
             batch = all_events[i:i + batch_size]
-            result = client.create_events_bulk(batch)
-            created.extend(result if isinstance(result, list) else [result])
+            resp = client.create_events_bulk(batch)
+            created.extend(resp if isinstance(resp, list) else [resp])
 
         return {
             "status": "ok",
@@ -423,7 +317,7 @@ def push_plan_to_intervals(
             "workout_events": len(events),
             "weekly_notes": len(note_events),
             "events_linked_to_library": matched,
-            "weeks_covered": workouts[-1][0] if workouts else 0,
+            "weeks_covered": len(note_events),
         }
     finally:
         db.close()
