@@ -296,7 +296,7 @@ def push_plan_to_intervals(
             event_date = plan_start + timedelta(weeks=week_num - 1, days=day_offset)
 
             event = {
-                "start_date_local": event_date.isoformat(),
+                "start_date_local": f"{event_date.isoformat()}T00:00:00",
                 "category": "WORKOUT",
                 "type": "Run",
                 "name": name or f"{wtype} workout",
