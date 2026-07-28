@@ -247,10 +247,12 @@ def get_plan_summary(instance_id: Optional[int] = None) -> dict:
 def push_plan_to_intervals(
     instance_id: Optional[int] = None,
     start_date: Optional[str] = None,
+    folder_id: Optional[int] = None,
 ) -> dict:
     """Push a generated plan to the Intervals.icu calendar as scheduled events.
     If instance_id is omitted, pushes the most recent plan.
     start_date (YYYY-MM-DD) sets when the plan begins; defaults to next Monday.
+    folder_id restricts workout library matching to a specific Intervals.icu folder.
 
     Requires INTERVALS_API_KEY and INTERVALS_ATHLETE_ID in environment.
     """
@@ -260,6 +262,11 @@ def push_plan_to_intervals(
     api_key = os.getenv("INTERVALS_API_KEY")
     if not api_key or not athlete_id:
         return {"error": "INTERVALS_API_KEY and INTERVALS_ATHLETE_ID must be set in .env"}
+
+    if folder_id is None:
+        env_folder = os.getenv("INTERVALS_WORKOUT_FOLDER_ID")
+        if env_folder:
+            folder_id = int(env_folder)
 
     client = IntervalsClient(athlete_id=athlete_id, api_key=api_key)
 
@@ -304,6 +311,8 @@ def push_plan_to_intervals(
 
         # Fetch Intervals.icu workout library and build lookup by code/name
         remote_workouts = client.get_workouts()
+        if folder_id is not None:
+            remote_workouts = [w for w in remote_workouts if w.get("folder_id") == folder_id]
         library_by_code: dict[str, dict] = {}
         library_by_name: dict[str, dict] = {}
         for rw in remote_workouts:
