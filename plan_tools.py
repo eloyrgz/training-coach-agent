@@ -5,9 +5,11 @@ so the chat agent can generate, list, and manage training plans conversationally
 """
 from __future__ import annotations
 
+import csv
 import re
 import sys
 import os
+from pathlib import Path
 from typing import Optional
 from langchain_core.tools import tool
 from dotenv import load_dotenv
@@ -355,11 +357,69 @@ def push_plan_to_intervals(
                 matched += 1
             events.append(event)
 
+        # Build weekly NOTE events
+        week_rows = db.fetchall(
+            f"""
+            SELECT week_number, source_week_number, phase_name, target_hours, is_recovery
+            FROM {schema}.plan_instance_weeks
+            WHERE plan_instance_id = %s
+            ORDER BY week_number
+            """,
+            (instance_id,),
+        )
+
+        # Load weekly notes CSV if available
+        weekly_notes_csv: dict[int, dict[str, str]] = {}
+        notes_path = Path(__file__).parent / "plan_generator" / "data" / "weekly_notes.csv"
+        if notes_path.exists():
+            with notes_path.open(encoding="utf-8", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    weekly_notes_csv[int(row["week_number"])] = {
+                        "phase_name": (row.get("phase_name") or "").strip(),
+                        "note": (row.get("note") or "").strip(),
+                    }
+
+        note_events = []
+        for wr in week_rows:
+            wk_num, source_wk, phase, target_h, is_recovery = wr
+            monday = plan_start + timedelta(weeks=wk_num - 1)
+
+            # Resolve note text from CSV via source week mapping
+            note_text = ""
+            source_key = source_wk if source_wk is not None else wk_num
+            csv_info = weekly_notes_csv.get(source_key)
+            if csv_info:
+                note_text = csv_info["note"]
+
+            title = f"Week {wk_num} — {phase}" if phase else f"Week {wk_num}"
+            hours_str = f"{float(target_h):.1f}h" if target_h else ""
+            if is_recovery:
+                title += " (Recovery)"
+            if hours_str:
+                title += f" [{hours_str}]"
+
+            description_parts = []
+            if note_text:
+                description_parts.append(note_text)
+            if not description_parts:
+                description_parts.append(f"Phase: {phase}" if phase else "")
+
+            note_events.append({
+                "start_date_local": f"{monday.isoformat()}T00:00:00",
+                "category": "NOTE",
+                "name": title,
+                "description": "\n".join(p for p in description_parts if p),
+                "for_week": True,
+                "external_id": f"plan_{instance_id}_note_w{wk_num}",
+            })
+
+        all_events = events + note_events
+
         # Push in batches of 50
         created = []
         batch_size = 50
-        for i in range(0, len(events), batch_size):
-            batch = events[i:i + batch_size]
+        for i in range(0, len(all_events), batch_size):
+            batch = all_events[i:i + batch_size]
             result = client.create_events_bulk(batch)
             created.extend(result if isinstance(result, list) else [result])
 
@@ -368,6 +428,8 @@ def push_plan_to_intervals(
             "plan_instance_id": instance_id,
             "start_date": plan_start.isoformat(),
             "events_created": len(created),
+            "workout_events": len(events),
+            "weekly_notes": len(note_events),
             "events_linked_to_library": matched,
             "weeks_covered": workouts[-1][0] if workouts else 0,
         }
