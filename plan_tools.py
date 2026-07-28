@@ -5,6 +5,7 @@ so the chat agent can generate, list, and manage training plans conversationally
 """
 from __future__ import annotations
 
+import re
 import sys
 import os
 from typing import Optional
@@ -27,6 +28,19 @@ load_dotenv(override=True)
 
 def _get_db() -> PlanGeneratorDB:
     return PlanGeneratorDB(get_db_uri())
+
+
+def _extract_workout_code(name: str | None) -> str | None:
+    """Extract a workout code like RF5, RRE2, RMI4 from a workout name."""
+    text = (name or "").upper()
+    matches = re.findall(r"\b([A-Z]{2,4}\d{1,3})\b", text)
+    for code in matches:
+        if code.startswith("WK"):
+            continue
+        return code
+    if matches:
+        return matches[0]
+    return None
 
 
 @tool
@@ -288,6 +302,20 @@ def push_plan_to_intervals(
         # Map day names to offsets (Mon=0, Sun=6)
         day_offsets = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
 
+        # Fetch Intervals.icu workout library and build lookup by code/name
+        remote_workouts = client.get_workouts()
+        library_by_code: dict[str, dict] = {}
+        library_by_name: dict[str, dict] = {}
+        for rw in remote_workouts:
+            rw_name = str(rw.get("name") or "").strip()
+            if not rw_name:
+                continue
+            library_by_name.setdefault(rw_name.upper(), rw)
+            code = _extract_workout_code(rw_name)
+            if code:
+                library_by_code.setdefault(code.upper(), rw)
+
+        matched = 0
         # Build events
         events = []
         for wo in workouts:
@@ -295,15 +323,26 @@ def push_plan_to_intervals(
             day_offset = day_offsets.get(day_name, 0)
             event_date = plan_start + timedelta(weeks=week_num - 1, days=day_offset)
 
+            # Try to match to a library workout by code then name
+            remote = None
+            plan_code = _extract_workout_code(name)
+            if plan_code:
+                remote = library_by_code.get(plan_code.upper())
+            if remote is None and name:
+                remote = library_by_name.get(name.upper())
+
             event = {
                 "start_date_local": f"{event_date.isoformat()}T00:00:00",
                 "category": "WORKOUT",
-                "type": "Run",
+                "type": (remote.get("type") if remote else None) or "Run",
                 "name": name or f"{wtype} workout",
                 "description": notes or "",
                 "moving_time": int((duration or 60) * 60),
                 "external_id": f"plan_{instance_id}_w{week_num}_{day_name}_{workout_uid}",
             }
+            if remote and remote.get("id"):
+                event["workout_id"] = remote["id"]
+                matched += 1
             events.append(event)
 
         # Push in batches of 50
@@ -319,6 +358,7 @@ def push_plan_to_intervals(
             "plan_instance_id": instance_id,
             "start_date": plan_start.isoformat(),
             "events_created": len(created),
+            "events_linked_to_library": matched,
             "weeks_covered": workouts[-1][0] if workouts else 0,
         }
     finally:
