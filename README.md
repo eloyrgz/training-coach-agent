@@ -118,6 +118,9 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 # --- PLAN GENERATOR CONFIG ---
 # SQL schema for plan generator tables (default: plan_gen)
 PLAN_GEN_SCHEMA=plan_gen
+
+# Optional: Intervals.icu workout library folder for import-workouts-from-intervals
+INTERVALS_WORKOUT_FOLDER_ID=897374
 ```
 
 ---
@@ -209,6 +212,9 @@ python -m plan_generator.plan_generator.cli init-db
 
 # Import workout library
 python -m plan_generator.plan_generator.cli import-workouts --zip plan_generator/data/workouts_from_levels.zip
+
+# Import workouts from Intervals.icu library
+python -m plan_generator.plan_generator.cli import-workouts-from-intervals --folder-id 897374
 
 # Generate a plan (CLI)
 python -m plan_generator.plan_generator.cli generate-plan --blueprint 4 --label "My Ultra 50K" --hours 7.0
