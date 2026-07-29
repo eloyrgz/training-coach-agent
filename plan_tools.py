@@ -57,7 +57,7 @@ def list_blueprints() -> list:
 def generate_training_plan(
     blueprint_id: int,
     label: str,
-    target_weekly_hours: float,
+    target_weekly_hours: Optional[float] = None,
     available_weeks: int = 18,
     current_ctl: float = 0.0,
     max_long_run_hours: float = 4.0,
@@ -71,7 +71,8 @@ def generate_training_plan(
     Args:
         blueprint_id: Which source blueprint to use (get from list_blueprints).
         label: Free-text label for this plan, e.g. "Eloy 2027 Ultra 50K".
-        target_weekly_hours: Average training hours per week (3.5–12.0).
+        target_weekly_hours: Average training hours per week. Omit to use the
+            blueprint's native average (L1≈5.7h, L2≈6.9h) which is recommended.
         available_weeks: Plan length in weeks (10–22, default 18).
         current_ctl: Athlete's current CTL/fitness; high values skip early base weeks.
         max_long_run_hours: Cap on longest single run in hours (default 4.0).
@@ -362,6 +363,9 @@ def delete_plan(instance_id: Optional[int] = None) -> dict:
         external_ids = [
             f"plan_{plan_id}_w{r[0]}_{r[1]}_{r[2]}" for r in workout_rows
         ]
+        # Also include note event external_ids
+        week_numbers = sorted({r[0] for r in workout_rows})
+        external_ids += [f"plan_{plan_id}_note_w{wk}" for wk in week_numbers]
 
         # Delete from DB (cascade: workouts and weeks)
         db.execute(
