@@ -240,7 +240,7 @@ def search_ntc_workouts(
             d = dict(r)
             ntc_id = d.pop("source_file", None)
             if ntc_id:
-                d["ntc_app_link"] = f"nike-ntc://workout/{ntc_id}"
+                d["ntc_link"] = f"https://www.nike.com/ntc/workout/{ntc_id}"
             results.append(d)
         return results
     finally:
@@ -325,7 +325,7 @@ def schedule_ntc_workout(
         "duration_min": row["duration_minutes"],
     }
     if ntc_id:
-        result["ntc_app_link"] = f"nike-ntc://workout/{ntc_id}"
+        result["ntc_link"] = f"https://www.nike.com/ntc/workout/{ntc_id}"
     return result
 
 

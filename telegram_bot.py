@@ -13,7 +13,6 @@ The bot maintains separate conversation history per user.
 
 import os
 import logging
-import re
 import asyncio
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
@@ -258,33 +257,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Telegram has a 4096 char limit per message; split if needed
     for chunk in _split_message(reply):
-        send_text = _md_to_html(chunk) if 'nike-ntc://' in chunk else chunk
-        await update.message.reply_text(send_text, **_parse_kwargs(chunk))
-
-
-def _md_to_html(text: str) -> str:
-    """Convert LLM markdown to Telegram HTML for custom URL scheme support."""
-    # Extract links first to protect URLs from escaping
-    links = {}
-    def _save_link(m):
-        key = f"\x00LINK{len(links)}\x00"
-        links[key] = f'<a href="{m.group(2)}">{m.group(1)}</a>'
-        return key
-    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', _save_link, text)
-    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-    for key, val in links.items():
-        text = text.replace(key, val)
-    text = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', text)
-    text = re.sub(r'(?<!\w)\*(.+?)\*(?!\w)', r'<i>\1</i>', text)
-    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
-    return text
-
-
-def _parse_kwargs(text: str) -> dict:
-    """Use HTML parse mode when custom URL schemes are present, else MARKDOWN."""
-    if 'nike-ntc://' in text:
-        return {"parse_mode": ParseMode.HTML}
-    return {"parse_mode": ParseMode.MARKDOWN}
+        await update.message.reply_text(chunk, parse_mode=ParseMode.MARKDOWN)
 
 
 def _split_message(text: str, limit: int = 4000) -> list[str]:
