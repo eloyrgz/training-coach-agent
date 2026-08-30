@@ -81,91 +81,82 @@ def import_ntc_catalog(json_path: str | None = None) -> dict:
     with open(path, encoding="utf-8") as f:
         workouts = json.load(f)
 
-    db = _get_db()
     schema = get_plan_schema()
-    imported = 0
+    rows = []
     skipped = 0
-    errors = 0
 
+    for w in workouts:
+        ntc_id = w.get("id", "")
+        title = (w.get("title") or "").strip()
+        if not title or not ntc_id:
+            skipped += 1
+            continue
+
+        if w.get("excludeFromLibrary"):
+            skipped += 1
+            continue
+
+        uid = f"NTC-{ntc_id[:12]}"
+        workout_type = _map_ntc_type(w)
+        duration_sec = w.get("durationSec") or 0
+        duration_minutes = round(duration_sec / 60.0, 2) if duration_sec else None
+
+        metadata = {
+            "ntc_type": w.get("type"),
+            "guided": w.get("type") == "video",
+            "focus": w.get("focus") or "",
+            "level": w.get("level") or "",
+            "equipment": w.get("equipment") or "",
+            "intensity": w.get("intensity") or "",
+            "muscleGroup": w.get("muscleGroup") or "",
+            "yoga": w.get("yoga", False),
+            "workoutType": w.get("workoutType") or "",
+            "profiles": w.get("profiles") or [],
+            "seoTags": w.get("seoTags") or [],
+        }
+        if w.get("isPremium"):
+            metadata["isPremium"] = True
+        if w.get("videoUrl"):
+            metadata["videoUrl"] = w["videoUrl"]
+        for img_key in ("image_library_url", "image_share_url", "image_postSession_url"):
+            if w.get(img_key):
+                metadata[img_key] = w[img_key]
+
+        purpose = _build_purpose(w)
+        intensity_label = (w.get("intensity") or "").capitalize() or None
+
+        rows.append((
+            uid, NTC_SOURCE_ZIP, ntc_id, title, workout_type,
+            duration_minutes, None, intensity_label, purpose, None,
+            json.dumps(metadata), title,
+        ))
+
+    upsert_sql = f"""
+    INSERT INTO {schema}.workout_library (
+        workout_uid, source_zip, source_file, workout_name, workout_type,
+        duration_minutes, tss, intensity, purpose, hr_zones, metadata, raw_text
+    )
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
+    ON CONFLICT (workout_uid) DO UPDATE SET
+        workout_name = EXCLUDED.workout_name,
+        workout_type = EXCLUDED.workout_type,
+        duration_minutes = EXCLUDED.duration_minutes,
+        intensity = EXCLUDED.intensity,
+        purpose = EXCLUDED.purpose,
+        metadata = EXCLUDED.metadata,
+        raw_text = EXCLUDED.raw_text;
+    """
+
+    db = _get_db()
     try:
-        for w in workouts:
-            ntc_id = w.get("id", "")
-            title = (w.get("title") or "").strip()
-            if not title or not ntc_id:
-                skipped += 1
-                continue
-
-            if w.get("excludeFromLibrary"):
-                skipped += 1
-                continue
-
-            uid = f"NTC-{ntc_id[:12]}"
-            workout_type = _map_ntc_type(w)
-            duration_sec = w.get("durationSec") or 0
-            duration_minutes = round(duration_sec / 60.0, 2) if duration_sec else None
-
-            metadata = {
-                "ntc_type": w.get("type"),
-                "guided": w.get("type") == "video",
-                "focus": w.get("focus") or "",
-                "level": w.get("level") or "",
-                "equipment": w.get("equipment") or "",
-                "intensity": w.get("intensity") or "",
-                "muscleGroup": w.get("muscleGroup") or "",
-                "yoga": w.get("yoga", False),
-                "workoutType": w.get("workoutType") or "",
-                "profiles": w.get("profiles") or [],
-                "seoTags": w.get("seoTags") or [],
-            }
-            if w.get("isPremium"):
-                metadata["isPremium"] = True
-            if w.get("videoUrl"):
-                metadata["videoUrl"] = w["videoUrl"]
-            for img_key in ("image_library_url", "image_share_url", "image_postSession_url"):
-                if w.get(img_key):
-                    metadata[img_key] = w[img_key]
-
-            purpose = _build_purpose(w)
-            intensity_label = (w.get("intensity") or "").capitalize() or None
-
-            upsert_sql = f"""
-            INSERT INTO {schema}.workout_library (
-                workout_uid, source_zip, source_file, workout_name, workout_type,
-                duration_minutes, tss, intensity, purpose, hr_zones, metadata, raw_text
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s)
-            ON CONFLICT (workout_uid) DO UPDATE SET
-                workout_name = EXCLUDED.workout_name,
-                workout_type = EXCLUDED.workout_type,
-                duration_minutes = EXCLUDED.duration_minutes,
-                intensity = EXCLUDED.intensity,
-                purpose = EXCLUDED.purpose,
-                metadata = EXCLUDED.metadata,
-                raw_text = EXCLUDED.raw_text;
-            """
-            try:
-                db.execute(
-                    upsert_sql,
-                    (
-                        uid,
-                        NTC_SOURCE_ZIP,
-                        ntc_id,
-                        title,
-                        workout_type,
-                        duration_minutes,
-                        None,
-                        intensity_label,
-                        purpose,
-                        None,
-                        json.dumps(metadata),
-                        title,
-                    ),
-                )
-                imported += 1
-            except Exception as e:
-                errors += 1
-                print(f"Error importing {ntc_id} ({title}): {e}")
-
+        with db.conn.cursor() as cur:
+            cur.executemany(upsert_sql, rows)
+        imported = len(rows)
+        errors = 0
+    except Exception as e:
+        imported = 0
+        errors = len(rows)
+        print(f"Batch import failed: {e}")
     finally:
         db.close()
 
