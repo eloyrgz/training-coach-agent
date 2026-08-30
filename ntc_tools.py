@@ -247,7 +247,7 @@ def schedule_ntc_workout(
 ) -> dict:
     """Schedule a Nike Training Club workout on a specific date in Intervals.icu.
     Args:
-        workout_uid: The NTC workout UID (from search_ntc_workouts results).
+        workout_uid: The NTC workout UID (from search_ntc_workouts results) or the workout name.
         target_date: Date to schedule (YYYY-MM-DD).
         time_of_day: Time of day (HH:MM, default 09:00).
     Returns confirmation with workout name, date, and Intervals.icu activity type.
@@ -262,6 +262,13 @@ def schedule_ntc_workout(
                 (workout_uid,),
             )
             row = cur.fetchone()
+            if not row:
+                # Fallback: match by name (case-insensitive, partial)
+                cur.execute(
+                    f"SELECT * FROM {schema}.workout_library WHERE source_zip = 'ntc-catalog' AND workout_name ILIKE %s LIMIT 1",
+                    (f"%{workout_uid}%",),
+                )
+                row = cur.fetchone()
     finally:
         db.close()
 
