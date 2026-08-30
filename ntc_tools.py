@@ -293,9 +293,7 @@ def schedule_ntc_workout(
         desc_parts.append(f"Level: {meta['level']}")
     if meta.get("equipment") and meta["equipment"] != "none":
         desc_parts.append(f"Equipment: {meta['equipment']}")
-    ntc_id = row.get("source_file") or ""
-    if ntc_id:
-        desc_parts.append(f"[Open in Nike Training Club](nike-ntc://workout/{ntc_id})")
+    desc_parts.append("Nike Training Club")
 
     event = {
         "start_date_local": f"{target_date}T{time_of_day}:00",
