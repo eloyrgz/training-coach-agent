@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -9,8 +10,13 @@ from langchain_core.tools import tool
 
 from agent_memory import SupabaseAgentMemory
 from intervals_icu_client import IntervalsClient
-from plan_generator.plan_generator.config import get_db_uri, get_plan_schema
-from plan_generator.plan_generator.db import PlanGeneratorDB
+
+_SUBMODULE_PATH = os.path.join(os.path.dirname(__file__), "plan_generator")
+if _SUBMODULE_PATH not in sys.path:
+    sys.path.insert(0, _SUBMODULE_PATH)
+
+from plan_generator.config import get_db_uri, get_plan_schema
+from plan_generator.db import PlanGeneratorDB
 
 load_dotenv(override=True)
 
