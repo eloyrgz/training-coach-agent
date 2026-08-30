@@ -104,6 +104,7 @@ Guidelines:
   equipment (none/basic/full), muscle_group (glutes/abs/arms), duration_max (minutes).
   On recovery days or when TSB is low, proactively suggest NTC Yoga/Mobility sessions.
   When the user picks a workout from search results, schedule it with schedule_ntc_workout.
+  Always include the ntc_link URL in your response so the user can tap it to open the workout in the Nike app.
 
 Respond in Spanish unless the user writes in another language. Be concise and data-driven."""
 

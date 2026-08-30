@@ -218,6 +218,7 @@ def search_ntc_workouts(
     where = " AND ".join(conditions)
     sql = f"""
         SELECT workout_uid, workout_name, workout_type, duration_minutes,
+               source_file,
                metadata->>'level' AS level,
                metadata->>'equipment' AS equipment,
                metadata->>'muscleGroup' AS muscle_group,
@@ -234,7 +235,14 @@ def search_ntc_workouts(
         with db.conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(sql, tuple(params))
             rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        results = []
+        for r in rows:
+            d = dict(r)
+            ntc_id = d.pop("source_file", None)
+            if ntc_id:
+                d["ntc_link"] = f"https://www.nike.com/ntc/workout/{ntc_id}"
+            results.append(d)
+        return results
     finally:
         db.close()
 
@@ -307,7 +315,8 @@ def schedule_ntc_workout(
 
     client.create_events_bulk([event], upsert=True)
 
-    return {
+    ntc_id = row.get("source_file") or ""
+    result = {
         "scheduled": True,
         "name": row["workout_name"],
         "date": target_date,
@@ -315,6 +324,9 @@ def schedule_ntc_workout(
         "icu_type": icu_type,
         "duration_min": row["duration_minutes"],
     }
+    if ntc_id:
+        result["ntc_link"] = f"https://www.nike.com/ntc/workout/{ntc_id}"
+    return result
 
 
 @tool
