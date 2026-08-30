@@ -10,8 +10,9 @@ from openai import RateLimitError
 
 from coach_tools import ALL_TOOLS, memory as db_memory
 from plan_tools import PLAN_TOOLS
+from ntc_tools import NTC_TOOLS
 
-ALL_TOOLS = ALL_TOOLS + PLAN_TOOLS
+ALL_TOOLS = ALL_TOOLS + PLAN_TOOLS + NTC_TOOLS
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 load_dotenv(override=True)
@@ -93,6 +94,16 @@ Guidelines:
   IMPORTANT: Do NOT ask all questions at once. Be conversational — adapt based on user responses.
   If the user provides multiple answers in one message, acknowledge them and move forward.
   If the user says something like "genera un plan rápido", use defaults and only confirm the essentials (blueprint + hours).
+
+- For NIKE TRAINING CLUB (NTC) cross-training workouts:
+  'busca entrenamientos de fuerza/yoga/movilidad' → search_ntc_workouts(focus=...)
+  'recomienda un workout para hoy' → suggest_ntc_workout(goal=...)
+  'programa ese workout para el martes' → schedule_ntc_workout(workout_uid=..., target_date=...)
+  The NTC catalog has 724 workouts: strength, endurance, mobility, yoga.
+  Filters: focus (strength/endurance/mobility), level (beginner/intermediate/advanced),
+  equipment (none/basic/full), muscle_group (glutes/abs/arms), duration_max (minutes).
+  On recovery days or when TSB is low, proactively suggest NTC Yoga/Mobility sessions.
+  When the user picks a workout from search results, schedule it with schedule_ntc_workout.
 
 Respond in Spanish unless the user writes in another language. Be concise and data-driven."""
 

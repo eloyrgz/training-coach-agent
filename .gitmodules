@@ -1,3 +1,6 @@
 [submodule "plan_generator"]
 	path = plan_generator
 	url = https://github.com/eloyrgz/eighty-twenty-plan-generator.git
+[submodule "ntc_catalog"]
+	path = ntc_catalog
+	url = https://github.com/eloyrgz/ntc-catalog.git
