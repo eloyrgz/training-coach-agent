@@ -351,21 +351,10 @@ def delete_plan(instance_id: Optional[int] = None) -> dict:
 
         plan_id, label = rows[0]
 
-        # Collect external_ids for Intervals.icu cleanup
-        workout_rows = db.fetchall(
-            f"""
-            SELECT week_number, day_name, workout_uid
-            FROM {schema}.plan_instance_workouts
-            WHERE plan_instance_id = %s
-            """,
+        workout_count = db.fetchall(
+            f"SELECT count(*) FROM {schema}.plan_instance_workouts WHERE plan_instance_id = %s",
             (plan_id,),
-        )
-        external_ids = [
-            f"plan_{plan_id}_w{r[0]}_{r[1]}_{r[2]}" for r in workout_rows
-        ]
-        # Also include note event external_ids
-        week_numbers = sorted({r[0] for r in workout_rows})
-        external_ids += [f"plan_{plan_id}_note_w{wk}" for wk in week_numbers]
+        )[0][0]
 
         # Delete from DB (cascade: workouts and weeks)
         db.execute(
@@ -381,15 +370,28 @@ def delete_plan(instance_id: Optional[int] = None) -> dict:
             (plan_id,),
         )
 
-        # Try to remove from Intervals.icu calendar
+        # Remove from Intervals.icu by querying actual events with matching prefix
         icu_deleted = 0
         athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
         api_key = os.getenv("INTERVALS_API_KEY")
-        if athlete_id and api_key and external_ids:
+        if athlete_id and api_key:
             try:
+                from datetime import date, timedelta
                 client = IntervalsClient(athlete_id=athlete_id, api_key=api_key)
-                client.delete_events_bulk(external_ids)
-                icu_deleted = len(external_ids)
+                today = date.today()
+                events = client.get_events(
+                    (today - timedelta(days=30)).isoformat(),
+                    (today + timedelta(days=365)).isoformat(),
+                )
+                # Match both CLI (plan-{id}-) and tool (plan_{id}_) external_id formats
+                prefixes = (f"plan-{plan_id}-", f"plan_{plan_id}_")
+                ext_ids = [
+                    e["external_id"] for e in events
+                    if e.get("external_id", "").startswith(prefixes)
+                ]
+                if ext_ids:
+                    client.delete_events_bulk(ext_ids)
+                    icu_deleted = len(ext_ids)
             except IntervalsAPIError:
                 pass  # Best-effort cleanup
 
@@ -397,7 +399,7 @@ def delete_plan(instance_id: Optional[int] = None) -> dict:
             "status": "ok",
             "deleted_plan_id": plan_id,
             "label": label,
-            "workouts_removed": len(workout_rows),
+            "workouts_removed": workout_count,
             "intervals_events_removed": icu_deleted,
         }
     finally:
