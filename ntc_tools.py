@@ -288,7 +288,7 @@ def schedule_ntc_workout(
         desc_parts.append(f"Equipment: {meta['equipment']}")
     ntc_id = row.get("source_file") or ""
     if ntc_id:
-        desc_parts.append(f"https://www.nike.com/ntc/workout/{ntc_id}")
+        desc_parts.append(f"nike-ntc://workout/{ntc_id}")
 
     event = {
         "start_date_local": f"{target_date}T{time_of_day}:00",
