@@ -72,3 +72,4 @@ uvicorn==0.49.0
 fitparse==1.2.0
 fit-tool==0.9.15
 intervals-icu-client @ git+https://github.com/eloyrgz/intervals-icu-client.git
+pgvector-agent-memory @ git+https://github.com/eloyrgz/pgvector-agent-memory.git

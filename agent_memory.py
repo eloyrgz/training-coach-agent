@@ -1,75 +1,28 @@
-import os
-import sys
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from sentence_transformers import SentenceTransformer
+from pgvector_agent_memory import PgVectorMemory
 
-class SupabaseAgentMemory:
+class SupabaseAgentMemory(PgVectorMemory):
     def __init__(self):
         print("Initializing Agent Memory connected to Supabase Production...")
-        self._db_uri = os.getenv("SUPABASE_POOLER_DB_URI") or os.getenv("SUPABASE_DB_URI")
-
-        if not self._db_uri:
-            print("❌ Error: No database URI found in environment variables.")
-            sys.exit(1)
-
-        self.conn = self._new_connection()
-
-        print("Loading local embedding model (all-MiniLM-L6-v2) for queries...")
-        self.encoder = SentenceTransformer('all-MiniLM-L6-v2')
-
-    def _new_connection(self):
-        conn = psycopg2.connect(self._db_uri)
-        conn.autocommit = True  # each query sees the latest committed data; no idle transaction held
-        conn.cursor_factory = RealDictCursor
-        return conn
-
-    def _cursor(self):
-        """Return a cursor, reconnecting transparently if the connection has gone stale."""
-        try:
-            self.conn.cursor().execute("SELECT 1")
-        except Exception:
-            print("⚠️ DB connection lost — reconnecting...")
-            try:
-                self.conn.close()
-            except Exception:
-                pass
-            self.conn = self._new_connection()
-        return self.conn.cursor()
+        super().__init__(db_uri_env_vars=("SUPABASE_POOLER_DB_URI", "SUPABASE_DB_URI"))
 
     def get_injury_context(self, user_query: str, threshold: float = 0.3, limit: int = 3):
-        """Queries Supabase using pgvector cosine distance (<=>)"""
-        # Generamos el embedding de la consulta del usuario
-        query_vector = self.encoder.encode(user_query).tolist()
-        
-        results = []
-        # El operador <=> calcula la distancia de coseno. 
-        # Como es distancia, "1 - distancia" nos da la similitud de coseno.
-        query = """
-        SELECT 
-            log_date::text as date, 
-            original_text as text, 
-            (1 - (embedding <=> %s::vector)) as similarity
-        FROM injury_logs
-        WHERE (1 - (embedding <=> %s::vector)) >= %s
-        ORDER BY similarity DESC
-        LIMIT %s;
-        """
-        
-        try:
-            with self._cursor() as cur:
-                cur.execute(query, (str(query_vector), str(query_vector), threshold, limit))
-                rows = cur.fetchall()
-                for row in rows:
-                    results.append({
-                        "date": row["date"][:10] if row["date"] else "N/A",
-                        "text": row["text"],
-                        "similarity": round(float(row["similarity"]), 3)
-                    })
-        except Exception as e:
-            print(f"⚠️ Error during vector search in Supabase: {e}")
-            
-        return results
+        """Semantic search over injury_logs using pgvector cosine similarity."""
+        rows = self.semantic_search(
+            table="injury_logs",
+            embedding_column="embedding",
+            text_query=user_query,
+            select_columns="log_date::text as date, original_text as text",
+            threshold=threshold,
+            limit=limit,
+        )
+        return [
+            {
+                "date": row["date"][:10] if row["date"] else "N/A",
+                "text": row["text"],
+                "similarity": round(float(row["similarity"]), 3),
+            }
+            for row in rows
+        ]
 
     def get_latest_metrics(self):
         """Returns the most recent physiological training metrics from production DB"""
@@ -392,7 +345,7 @@ class SupabaseAgentMemory:
     def add_training_note(self, note: str, note_date: str):
         """Inserts a new subjective training note into injury_logs and computes its embedding"""
         try:
-            vector = self.encoder.encode(note).tolist()
+            vector = self.encode(note)
             with self._cursor() as cur:
                 cur.execute(
                     """
@@ -413,7 +366,7 @@ class SupabaseAgentMemory:
     def add_medical_background(self, text: str):
         """Insert a medical background entry into injury_logs with log_type='medical_background'."""
         try:
-            vector = self.encoder.encode(text).tolist()
+            vector = self.encode(text)
             with self._cursor() as cur:
                 cur.execute(
                     """
