@@ -150,6 +150,25 @@ class TrainingDataPipeline:
     def close(self):
         self.db_conn.close()
 
+
+def build_pipeline_from_env() -> TrainingDataPipeline:
+    """Construct a TrainingDataPipeline from INTERVALS_*/SUPABASE_* env vars."""
+    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
+    icu_api_key = os.getenv("INTERVALS_API_KEY")
+    supabase_uri = os.getenv("SUPABASE_DB_URI")
+    supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
+
+    if not all([athlete_id, icu_api_key, supabase_uri]):
+        raise ValueError("Missing configuration in .env. Required: INTERVALS_ATHLETE_ID, INTERVALS_API_KEY, SUPABASE_DB_URI.")
+
+    return TrainingDataPipeline(
+        athlete_id=athlete_id,
+        icu_api_key=icu_api_key,
+        db_uri=supabase_uri,
+        fallback_db_uri=supabase_pooler_uri,
+    )
+
+
 # --- ENTRY POINT: CONFIGURATION LOADED FROM ENVIRONMENT ---
 if __name__ == "__main__":
     import argparse
@@ -165,27 +184,14 @@ if __name__ == "__main__":
 
     print(f"Starting pipeline — syncing last {args.days} days...")
 
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    icu_api_key = os.getenv("INTERVALS_API_KEY")
-    supabase_uri = os.getenv("SUPABASE_DB_URI")
-    supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
-
-    if not all([athlete_id, icu_api_key, supabase_uri]):
-        print("❌ Error: Missing configuration variables in your .env file.")
-        print("Please check INTERVALS_ATHLETE_ID, INTERVALS_API_KEY, and SUPABASE_DB_URI.")
-        sys.exit(1)
-
     try:
-        pipeline = TrainingDataPipeline(
-            athlete_id=athlete_id,
-            icu_api_key=icu_api_key,
-            db_uri=supabase_uri,
-            fallback_db_uri=supabase_pooler_uri,
-        )
-
+        pipeline = build_pipeline_from_env()
         pipeline.sync_activities(days_back=args.days)
         pipeline.close()
         print("🏁 Execution finished successfully.")
 
+    except ValueError as e:
+        print(f"❌ Error: {e}")
+        sys.exit(1)
     except Exception as e:
         print(f"❌ Execution failed with error: {e}")

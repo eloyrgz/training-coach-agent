@@ -1,4 +1,3 @@
-import os
 from datetime import date, timedelta
 from typing import Optional
 from langchain_core.tools import tool
@@ -8,15 +7,6 @@ from agent_memory import SupabaseAgentMemory
 from intervals_icu_client import IntervalsClient, IntervalsAPIError
 
 load_dotenv(override=True)
-
-
-def _get_icu_client() -> IntervalsClient | None:
-    """Return an IntervalsClient if credentials are configured, else None."""
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
-    if athlete_id and api_key:
-        return IntervalsClient(athlete_id=athlete_id, api_key=api_key)
-    return None
 
 memory = SupabaseAgentMemory()
 
@@ -118,7 +108,7 @@ def add_training_note(note: str, note_date: Optional[str] = None) -> dict:
 
     # 2. Also post as a comment on the Intervals.icu activity (if one exists that day)
     icu_result = {"intervals_icu_comment": False}
-    client = _get_icu_client()
+    client = IntervalsClient.from_env()
 
     if client:
         activities = memory.get_activity_ids_for_date(target_date)
@@ -141,7 +131,7 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
     start_date/end_date: YYYY-MM-DD. Defaults to today when not provided.
     Returns planned workout name, type, date, planned distance, duration, and description.
     """
-    client = _get_icu_client()
+    client = IntervalsClient.from_env()
     if not client:
         return [{"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY in environment."}]
 
@@ -173,7 +163,7 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
 
 def _fetch_planned(target_date: str) -> list:
     """Internal helper: fetch Intervals.icu planned events for a single date."""
-    client = _get_icu_client()
+    client = IntervalsClient.from_env()
     if not client:
         return []
     try:
@@ -194,7 +184,7 @@ def log_rpe(rpe: int, target_date: Optional[str] = None, activity_name: Optional
     if not 1 <= rpe <= 10:
         return {"error": "RPE must be between 1 and 10."}
 
-    client = _get_icu_client()
+    client = IntervalsClient.from_env()
     if not client:
         return {"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY."}
 

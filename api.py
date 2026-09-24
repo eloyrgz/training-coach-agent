@@ -14,7 +14,7 @@ from langchain_core.messages import HumanMessage, AIMessage
 
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
-from sync_pipeline import TrainingDataPipeline
+from sync_pipeline import build_pipeline_from_env
 
 load_dotenv(override=True)
 
@@ -80,20 +80,7 @@ def _check_auth(authorization: str | None):
 
 
 def _run_sync(days: int):
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    icu_api_key = os.getenv("INTERVALS_API_KEY")
-    supabase_uri = os.getenv("SUPABASE_DB_URI")
-    supabase_pooler_uri = os.getenv("SUPABASE_POOLER_DB_URI")
-
-    if not all([athlete_id, icu_api_key, supabase_uri]):
-        raise ValueError("Missing configuration in .env. Required: INTERVALS_ATHLETE_ID, INTERVALS_API_KEY, SUPABASE_DB_URI.")
-
-    pipeline = TrainingDataPipeline(
-        athlete_id=athlete_id,
-        icu_api_key=icu_api_key,
-        db_uri=supabase_uri,
-        fallback_db_uri=supabase_pooler_uri,
-    )
+    pipeline = build_pipeline_from_env()
     try:
         pipeline.sync_activities(days_back=days)
     finally:

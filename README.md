@@ -22,13 +22,14 @@ intervals-icu-client  ◄── shared package (github.com/eloyrgz/intervals-icu
       │               chat_agent.py        injury_agent.py
       │            (conversational Q&A)   (LangGraph risk eval)
       │                      │
-      │          ┌───────────┼───────────┐
-      │          ▼           ▼           ▼
-      │    coach_tools.py  plan_tools.py
-      │    (15 tools)      (5 tools)
-      │                      │
-      │                      ▼
-      │              plan_generator/  (git submodule)
+      │          ┌───────────┼───────────┬───────────┐
+      │          ▼           ▼           ▼           ▼
+      │    coach_tools.py  plan_tools.py       ntc_tools.py
+      │    (15 tools)      (5 tools)           (4 tools)
+      │                      │                   │
+      │                      ▼                   ▼
+      │              plan_generator/       ntc_catalog/  (git submodule)
+      │              (git submodule)       └── NTC workout catalog
       │              └── plan_engine, workout_library, etc.
       │
       └──► telegram_bot.py (Telegram interface)
@@ -49,6 +50,8 @@ intervals-icu-client  ◄── shared package (github.com/eloyrgz/intervals-icu
 | `telegram_bot.py` | Telegram bot interface — wraps `chat_agent.py` with per-user conversation history and commands `/injury`, `/sync`, `/reset` |
 | `plan_tools.py` | Plan generation tools exposed to the LLM — wraps `plan_generator` submodule as callable agent tools |
 | `plan_generator/` | Git submodule — [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator) for training plan creation, workout library management, and Intervals.icu plan export |
+| `ntc_tools.py` | Nike Training Club workout tools exposed to the LLM — search, schedule, and suggest NTC workouts from the catalog |
+| `ntc_catalog/` | Git submodule — [ntc-catalog](https://github.com/eloyrgz/ntc-catalog) Nike Training Club workout catalog extractor/data |
 | `custom_components/` | Optional Home Assistant custom integration — see [docs/HA_INTEGRATION.md](docs/HA_INTEGRATION.md) |
 | *(external)* | [intervals-icu-client](https://github.com/eloyrgz/intervals-icu-client) — shared Intervals.icu API client used by sync_pipeline, coach_tools, and plan_tools |
 
@@ -73,8 +76,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-> **Note:** The `plan_generator/` directory is a git submodule pointing to
-> [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator).
+> **Note:** The `plan_generator/` and `ntc_catalog/` directories are git submodules pointing to
+> [eighty-twenty-plan-generator](https://github.com/eloyrgz/eighty-twenty-plan-generator) and
+> [ntc-catalog](https://github.com/eloyrgz/ntc-catalog) respectively.
 > If you cloned without `--recurse-submodules`, run:
 > ```bash
 > git submodule update --init --recursive

@@ -39,14 +39,6 @@ def _get_db():
     return PlanGeneratorDB(get_db_uri())
 
 
-def _get_icu_client() -> IntervalsClient | None:
-    athlete_id = os.getenv("INTERVALS_ATHLETE_ID")
-    api_key = os.getenv("INTERVALS_API_KEY")
-    if athlete_id and api_key:
-        return IntervalsClient(athlete_id=athlete_id, api_key=api_key)
-    return None
-
-
 def _map_ntc_type(workout: dict) -> str:
     """Map NTC metadata fields to a workout_type label."""
     if workout.get("yoga"):
@@ -275,7 +267,7 @@ def schedule_ntc_workout(
     if not row:
         return {"error": f"Workout not found: {workout_uid}"}
 
-    client = _get_icu_client()
+    client = IntervalsClient.from_env()
     if not client:
         return {"error": "Intervals.icu credentials not configured"}
 
