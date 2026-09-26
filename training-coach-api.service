@@ -1,0 +1,14 @@
+[Unit]
+Description=Training Coach API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/eloy/personal-agent/training-coach-agent
+ExecStart=/home/eloy/personal-agent/training-coach-agent/.venv/bin/uvicorn api:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
