@@ -149,6 +149,7 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
         category = ev.get("category", "")
         # Skip non-workout entries (notes, races without plan, etc.) but include all scheduled events
         results.append({
+            "event_id": ev.get("id"),
             "date": (ev.get("start_date_local") or "")[:10],
             "name": ev.get("name"),
             "type": ev.get("type"),
@@ -159,6 +160,50 @@ def get_scheduled_workouts(start_date: Optional[str] = None, end_date: Optional[
         })
 
     return results if results else [{"message": f"No workouts scheduled between {oldest} and {newest}."}]
+
+
+@tool
+def delete_scheduled_workout(target_date: str, event_name: str) -> dict:
+    """Delete one Intervals.icu calendar entry by its exact date and name.
+    First list scheduled entries for that date and confirm the exact name with
+    the user if it is unclear. Refuses to delete if the name matches zero or
+    multiple entries. target_date must be YYYY-MM-DD.
+    """
+    client = IntervalsClient.from_env()
+    if not client:
+        return {"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY."}
+
+    try:
+        events = client.get_events(oldest=target_date, newest=target_date)
+    except IntervalsAPIError as e:
+        return {"error": f"Failed to fetch calendar entries: {e}"}
+
+    matches = [
+        ev for ev in events
+        if (ev.get("name") or "").strip().casefold() == event_name.strip().casefold()
+    ]
+    if not matches:
+        return {"error": f"No calendar entry named '{event_name}' found on {target_date}."}
+    if len(matches) > 1:
+        return {
+            "error": "Multiple entries have that name on this date; deletion was not performed.",
+            "matches": [{"event_id": ev.get("id"), "name": ev.get("name"), "type": ev.get("type")} for ev in matches],
+        }
+
+    event = matches[0]
+    if event.get("id") is None:
+        return {"error": "The matching calendar entry has no event ID; deletion was not performed."}
+    try:
+        result = client.delete_event(event["id"])
+    except IntervalsAPIError as e:
+        return {"error": f"Failed to delete calendar entry: {e}"}
+    return {
+        "status": "deleted",
+        "event_id": event["id"],
+        "date": target_date,
+        "name": event.get("name"),
+        "result": result,
+    }
 
 
 def _fetch_planned(target_date: str) -> list:
@@ -313,6 +358,7 @@ ALL_TOOLS = [
     get_streak,
     add_training_note,
     get_scheduled_workouts,
+    delete_scheduled_workout,
     compare_planned_vs_actual,
     log_rpe,
     get_medical_background,

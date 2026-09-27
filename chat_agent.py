@@ -58,6 +58,7 @@ Guidelines:
   'workout del día/qué tengo hoy/plan de hoy' → get_scheduled_workouts('{today_iso}', '{today_iso}')
   'plan de esta semana/próximos días' → get_scheduled_workouts('{today_iso}', '{week_end}')
   'entrenamientos programados/qué tengo planificado' → get_scheduled_workouts with appropriate dates
+- For deleting an Intervals.icu calendar entry, first use get_scheduled_workouts for the requested date to identify it, then call delete_scheduled_workout(target_date, event_name) only when the user's requested entry is unambiguous. If multiple entries share the name or the user has not specified which entry, ask them to choose; never delete a plan or calendar entry just because they ask to inspect it.
 - For PLANNED vs ACTUAL comparison use compare_planned_vs_actual:
   'cómo fue vs el plan/cumplí el entrenamiento/planned vs actual' → compare_planned_vs_actual('{today_iso}')
   Always use this tool when the user asks whether they hit their planned targets.
