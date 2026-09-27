@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
@@ -38,9 +38,19 @@ app = FastAPI(
 
 # --- Models ---
 
+class HistoryTurn(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000, description="User message to the coach")
     conversation_id: str = Field(default="default", description="Optional session ID to maintain conversation context")
+    history: list[HistoryTurn] | None = Field(
+        default=None,
+        description="Prior turns supplied by the caller; overrides the in-memory store when present",
+    )
+    context: str | None = Field(default=None, max_length=8000, description="Extra memory context (e.g. user facts)")
 
 
 class ChatResponse(BaseModel):
@@ -99,11 +109,20 @@ def chat(req: ChatRequest, authorization: str | None = None):
     """Send a message to the training coach and get a reply."""
     _check_auth(authorization)
 
-    history = _conversations.get(req.conversation_id, [])
+    if req.history is not None:
+        history = [
+            HumanMessage(content=turn.content) if turn.role == "user" else AIMessage(content=turn.content)
+            for turn in req.history
+            if turn.role in ("user", "assistant")
+        ]
+    else:
+        history = _conversations.get(req.conversation_id, [])
     history.append(HumanMessage(content=req.message))
 
+    agent_messages = ([SystemMessage(content=req.context)] if req.context else []) + history
+
     try:
-        reply = run_agent(history)
+        reply = run_agent(agent_messages)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {e}")
 
