@@ -4,6 +4,7 @@ import sys
 from datetime import date
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
@@ -21,6 +22,7 @@ from plan_generator.db import PlanGeneratorDB
 load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
+NTC_WORKOUT_DEEP_LINK = "niketrainingclub://x-callback-url/workout?id={}"
 
 # NTC workout_type → Intervals.icu activity type
 NTC_INTERVALS_TYPE_MAP = {
@@ -68,6 +70,11 @@ def _build_purpose(workout: dict) -> str:
     if intensity:
         parts.append(intensity)
     return " — ".join(parts) if parts else ""
+
+
+def _ntc_workout_deep_link(workout_id: str) -> str:
+    """Build the NTC app's workout callback URI (confirmed from its APK)."""
+    return NTC_WORKOUT_DEEP_LINK.format(quote(workout_id, safe=""))
 
 
 def import_ntc_catalog(json_path: str | None = None) -> dict:
@@ -286,6 +293,7 @@ def schedule_ntc_workout(
     if meta.get("equipment") and meta["equipment"] != "none":
         desc_parts.append(f"Equipment: {meta['equipment']}")
     desc_parts.append("Nike Training Club")
+    desc_parts.append(f"Open in NTC: {_ntc_workout_deep_link(row['source_file'])}")
 
     event = {
         "start_date_local": f"{target_date}T{time_of_day}:00",
