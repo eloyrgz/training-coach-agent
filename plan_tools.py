@@ -5,8 +5,6 @@ so the chat agent can generate, list, and manage training plans conversationally
 """
 from __future__ import annotations
 
-import sys
-import os
 from pathlib import Path
 from typing import Optional
 from langchain_core.tools import tool
@@ -14,10 +12,9 @@ from dotenv import load_dotenv
 
 from intervals_icu_client import IntervalsClient, IntervalsAPIError
 
-# Add submodule to sys.path so plan_generator package is importable
-_SUBMODULE_PATH = os.path.join(os.path.dirname(__file__), "plan_generator")
-if _SUBMODULE_PATH not in sys.path:
-    sys.path.insert(0, _SUBMODULE_PATH)
+from import_utils import ensure_submodule_importable
+
+ensure_submodule_importable("plan_generator")
 
 from plan_generator.db import PlanGeneratorDB
 from plan_generator.config import get_db_uri, get_plan_schema

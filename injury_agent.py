@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import argparse
+import unicodedata
 from typing import TypedDict, List, Dict, Any
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
@@ -39,6 +40,15 @@ def close_db_memory() -> None:
         _DB_MEMORY.close()
         _DB_MEMORY = None
 
+
+def _normalized_text(value: str) -> str:
+    text = (value or "").lower()
+    return "".join(
+        character
+        for character in unicodedata.normalize("NFKD", text)
+        if not unicodedata.combining(character)
+    )
+
 def retrieve_athlete_data_node(state: AgentState) -> Dict[str, Any]:
     print("\n[NODE 1] -> Querying Supabase Production Tables...")
     db_memory = _get_db_memory()
@@ -50,7 +60,7 @@ def retrieve_athlete_data_node(state: AgentState) -> Dict[str, Any]:
 
 
 def _extract_symptom_signals(user_input: str) -> Dict[str, Any]:
-    text = (user_input or "").lower()
+    text = _normalized_text(user_input)
 
     severity = None
     score_match = re.search(r"(\d{1,2})\s*/\s*10", text)
@@ -93,7 +103,7 @@ def _extract_symptom_signals(user_input: str) -> Dict[str, Any]:
 
 
 def _extract_medical_history_signals(medical_history: str) -> Dict[str, Any]:
-    text = (medical_history or "").lower()
+    text = _normalized_text(medical_history)
     if not text:
         return {
             "has_history": False,

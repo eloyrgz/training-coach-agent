@@ -10,13 +10,14 @@ import html
 import re
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
+from injury_agent import close_db_memory
 from sync_pipeline import build_pipeline_from_env
 
 load_dotenv(override=True)
@@ -28,7 +29,10 @@ API_KEY = os.getenv("COACH_API_KEY", "")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     yield
-    db_memory.close()
+    try:
+        db_memory.close()
+    finally:
+        close_db_memory()
 
 
 app = FastAPI(
@@ -135,7 +139,7 @@ a {{ display: block; margin: 1rem 0; padding: 1rem; border-radius: .6rem; backgr
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(req: ChatRequest, authorization: str | None = None):
+def chat(req: ChatRequest, authorization: str | None = Header(default=None)):
     """Send a message to the training coach and get a reply."""
     _check_auth(authorization)
 
@@ -163,7 +167,10 @@ def chat(req: ChatRequest, authorization: str | None = None):
 
 
 @app.post("/chat/reset")
-def reset_conversation(conversation_id: str = "default", authorization: str | None = None):
+def reset_conversation(
+    conversation_id: str = "default",
+    authorization: str | None = Header(default=None),
+):
     """Clear conversation history for a session."""
     _check_auth(authorization)
     _conversations.pop(conversation_id, None)
@@ -171,7 +178,7 @@ def reset_conversation(conversation_id: str = "default", authorization: str | No
 
 
 @app.post("/sync", response_model=SyncResponse)
-def sync(req: SyncRequest, authorization: str | None = None):
+def sync(req: SyncRequest, authorization: str | None = Header(default=None)):
     """Sync Intervals.icu activities into Supabase for the requested number of days."""
     _check_auth(authorization)
     try:
