@@ -22,7 +22,7 @@ from plan_generator.db import PlanGeneratorDB
 load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
-NTC_WORKOUT_LINK = "https://ntc-go.nike.com/f/{}"
+NTC_WORKOUT_LINK = "https://dlc.nike.com/?id={}"
 
 # NTC workout_type → Intervals.icu activity type
 NTC_INTERVALS_TYPE_MAP = {
