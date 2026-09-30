@@ -166,9 +166,17 @@ Main endpoints:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check (`{"status": "ok"}`) |
+| `GET` | `/ntc/workout/{workout_id}` | HTTPS handoff page with an **Open in NTC** button (Android) |
 | `POST` | `/chat` | Sends a coach message and returns reply + `conversation_id` |
 | `POST` | `/chat/reset` | Clears in-memory history for a `conversation_id` |
 | `POST` | `/sync` | Runs Intervals.icu → Supabase sync for the last `N` days |
+
+To include the HTTPS handoff page in scheduled NTC workout descriptions, set
+`NTC_PUBLIC_BASE_URL` to the public HTTPS origin that reverse-proxies this API
+(for example, `https://coach.example.com`). The server must expose
+`/ntc/workout/{workout_id}` without API-key authentication so a phone can open
+the page from Intervals.icu. Without this setting, scheduled descriptions
+include the direct Nike URI and Android `intent://` link only.
 
 Example request:
 
