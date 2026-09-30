@@ -293,7 +293,8 @@ def schedule_ntc_workout(
     if meta.get("equipment") and meta["equipment"] != "none":
         desc_parts.append(f"Equipment: {meta['equipment']}")
     desc_parts.append("Nike Training Club")
-    desc_parts.append(f"Open in NTC: {_ntc_workout_deep_link(row['source_file'])}")
+    ntc_link = _ntc_workout_deep_link(row["source_file"])
+    desc_parts.append(f"[Open in Nike Training Club]({ntc_link})")
 
     event = {
         "start_date_local": f"{target_date}T{time_of_day}:00",
