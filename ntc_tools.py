@@ -22,8 +22,7 @@ from plan_generator.db import PlanGeneratorDB
 load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
-NTC_WORKOUT_LINK = "niketrainingclub://x-callback-url/workout?id={}"
-NTC_PUBLIC_BASE_URL = os.getenv("NTC_PUBLIC_BASE_URL", "").rstrip("/")
+NTC_GITHUB_PAGES_URL = "https://eloyrgz.github.io/personal-agent/ntc.html?id={}"
 
 # NTC workout_type → Intervals.icu activity type
 NTC_INTERVALS_TYPE_MAP = {
@@ -71,11 +70,6 @@ def _build_purpose(workout: dict) -> str:
     if intensity:
         parts.append(intensity)
     return " — ".join(parts) if parts else ""
-
-
-def _ntc_workout_deep_link(workout_id: str) -> str:
-    """Build Nike Training Club's verified workout deep link."""
-    return NTC_WORKOUT_LINK.format(quote(workout_id, safe=""))
 
 
 def import_ntc_catalog(json_path: str | None = None) -> dict:
@@ -295,13 +289,8 @@ def schedule_ntc_workout(
         desc_parts.append(f"Equipment: {meta['equipment']}")
     desc_parts.append("Nike Training Club")
     workout_id = row["source_file"]
-    ntc_link = _ntc_workout_deep_link(workout_id)
-    intent_link = _ntc_workout_intent_link(workout_id)
-    desc_parts.append(f"[Open in NTC (native)]({ntc_link})")
-    desc_parts.append(f"[Open in NTC (Android intent)]({intent_link})")
-    if NTC_PUBLIC_BASE_URL.startswith("https://"):
-        landing_link = f"{NTC_PUBLIC_BASE_URL}/ntc/workout/{quote(workout_id, safe='')}"
-        desc_parts.append(f"[Open NTC link page]({landing_link})")
+    landing_link = NTC_GITHUB_PAGES_URL.format(quote(workout_id, safe=""))
+    desc_parts.append(f"[Open in Nike Training Club]({landing_link})")
 
     event = {
         "start_date_local": f"{target_date}T{time_of_day}:00",

@@ -166,19 +166,16 @@ Main endpoints:
 | Method | Path | Description |
 |---|---|---|
 | `GET` | `/health` | Health check (`{"status": "ok"}`) |
-| `GET` | `/ntc/workout/{workout_id}` | HTTPS handoff page with an **Open in NTC** button (Android) |
+| `GET` | `/ntc/workout/{workout_id}` | Local/API handoff page with buttons for Android (diagnostics) |
 | `POST` | `/chat` | Sends a coach message and returns reply + `conversation_id` |
 | `POST` | `/chat/reset` | Clears in-memory history for a `conversation_id` |
 | `POST` | `/sync` | Runs Intervals.icu → Supabase sync for the last `N` days |
 
-To include the HTTPS handoff page in scheduled NTC workout descriptions, set
-`NTC_PUBLIC_BASE_URL` to the public HTTPS origin that reverse-proxies this API
-(for example, `https://coach.example.com`). The server must expose
-`/ntc/workout/{workout_id}` without API-key authentication so a phone can open
-the page from Intervals.icu. Until this is configured, scheduled descriptions
-show the native Nike URI as copyable text because Intervals does not activate
-custom app URI schemes in workout descriptions. The handoff page has the Android
-intent button and the native Nike URI as a fallback.
+Scheduled NTC workout descriptions link to the static handoff page at
+`https://eloyrgz.github.io/personal-agent/ntc.html?id={workout_id}`. GitHub Pages
+serves `docs/ntc.html`; it displays buttons for the verified Android intent link
+and the native Nike app link. This page works directly on the phone and does not
+depend on the agent server being online.
 
 Example request:
 
