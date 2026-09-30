@@ -22,7 +22,7 @@ from plan_generator.db import PlanGeneratorDB
 load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
-NTC_WORKOUT_DEEP_LINK = "niketrainingclub://x-callback-url/workout?id={}"
+NTC_WORKOUT_LINK = "https://ntc-go.nike.com/f/{}"
 
 # NTC workout_type → Intervals.icu activity type
 NTC_INTERVALS_TYPE_MAP = {
@@ -73,8 +73,8 @@ def _build_purpose(workout: dict) -> str:
 
 
 def _ntc_workout_deep_link(workout_id: str) -> str:
-    """Build the NTC app's workout callback URI (confirmed from its APK)."""
-    return NTC_WORKOUT_DEEP_LINK.format(quote(workout_id, safe=""))
+    """Build Nike's verified HTTPS app link for a workout (from its APK)."""
+    return NTC_WORKOUT_LINK.format(quote(workout_id, safe=""))
 
 
 def import_ntc_catalog(json_path: str | None = None) -> dict:
