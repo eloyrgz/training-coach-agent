@@ -23,7 +23,6 @@ load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
 NTC_WORKOUT_LINK = "niketrainingclub://x-callback-url/workout?id={}"
-NTC_INTENT_LINK = "intent://x-callback-url/workout?id={}#Intent;scheme=niketrainingclub;package=com.nike.ntc;end"
 NTC_PUBLIC_BASE_URL = os.getenv("NTC_PUBLIC_BASE_URL", "").rstrip("/")
 
 # NTC workout_type → Intervals.icu activity type
@@ -77,11 +76,6 @@ def _build_purpose(workout: dict) -> str:
 def _ntc_workout_deep_link(workout_id: str) -> str:
     """Build Nike Training Club's verified workout deep link."""
     return NTC_WORKOUT_LINK.format(quote(workout_id, safe=""))
-
-
-def _ntc_workout_intent_link(workout_id: str) -> str:
-    """Build an Android intent URL that opens the same NTC workout."""
-    return NTC_INTENT_LINK.format(quote(workout_id, safe=""))
 
 
 def import_ntc_catalog(json_path: str | None = None) -> dict:

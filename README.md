@@ -175,8 +175,10 @@ To include the HTTPS handoff page in scheduled NTC workout descriptions, set
 `NTC_PUBLIC_BASE_URL` to the public HTTPS origin that reverse-proxies this API
 (for example, `https://coach.example.com`). The server must expose
 `/ntc/workout/{workout_id}` without API-key authentication so a phone can open
-the page from Intervals.icu. Without this setting, scheduled descriptions
-include the direct Nike URI and Android `intent://` link only.
+the page from Intervals.icu. Until this is configured, scheduled descriptions
+show the native Nike URI as copyable text because Intervals does not activate
+custom app URI schemes in workout descriptions. The handoff page has the Android
+intent button and the native Nike URI as a fallback.
 
 Example request:
 
