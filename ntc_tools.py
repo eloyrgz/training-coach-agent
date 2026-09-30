@@ -22,7 +22,7 @@ from plan_generator.db import PlanGeneratorDB
 load_dotenv(override=True)
 
 NTC_SOURCE_ZIP = "ntc-catalog"
-NTC_GITHUB_PAGES_URL = "https://eloyrgz.github.io/personal-agent/ntc.html?id={}"
+NTC_GITHUB_PAGES_URL = "https://eloyrgz.github.io/personal-agent/ntc.html?id={}&name={}"
 
 # NTC workout_type → Intervals.icu activity type
 NTC_INTERVALS_TYPE_MAP = {
@@ -289,7 +289,9 @@ def schedule_ntc_workout(
         desc_parts.append(f"Equipment: {meta['equipment']}")
     desc_parts.append("Nike Training Club")
     workout_id = row["source_file"]
-    landing_link = NTC_GITHUB_PAGES_URL.format(quote(workout_id, safe=""))
+    landing_link = NTC_GITHUB_PAGES_URL.format(
+        quote(workout_id, safe=""), quote(row["workout_name"], safe="")
+    )
     desc_parts.append(f"[Open in Nike Training Club]({landing_link})")
 
     event = {
