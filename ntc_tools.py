@@ -300,6 +300,14 @@ def schedule_ntc_workout(
         "type": icu_type,
         "name": row["workout_name"],
         "description": "\n".join(desc_parts),
+        # Intervals.icu sends planned workouts to Suunto as workout guides.
+        # A description alone does not create guide steps, so Suunto rejects
+        # the upload with "guide.steps ... less than ... minimum (1)".
+        "workout_doc": {
+            "steps": [{"text": row["workout_name"], "duration": duration_sec}],
+            "duration": duration_sec,
+            "description": "\n".join(desc_parts),
+        },
         "moving_time": duration_sec,
         "external_id": f"ntc_{workout_uid}_{target_date}",
     }
