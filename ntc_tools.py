@@ -24,7 +24,6 @@ load_dotenv(override=True)
 NTC_SOURCE_ZIP = "ntc-catalog"
 NTC_WORKOUT_LINK = "niketrainingclub://x-callback-url/workout?id={}"
 NTC_INTENT_LINK = "intent://x-callback-url/workout?id={}#Intent;scheme=niketrainingclub;package=com.nike.ntc;end"
-NTC_BRANCH_LINK = "https://niketraining.app.link/?$android_deeplink_path={}&$deeplink_path={}"
 NTC_PUBLIC_BASE_URL = os.getenv("NTC_PUBLIC_BASE_URL", "").rstrip("/")
 
 # NTC workout_type → Intervals.icu activity type
@@ -83,12 +82,6 @@ def _ntc_workout_deep_link(workout_id: str) -> str:
 def _ntc_workout_intent_link(workout_id: str) -> str:
     """Build an Android intent URL that opens the same NTC workout."""
     return NTC_INTENT_LINK.format(quote(workout_id, safe=""))
-
-
-def _ntc_workout_branch_link(workout_id: str) -> str:
-    """Build a clickable Nike Branch HTTPS link to the exact workout."""
-    path = quote(f"x-callback-url/workout?id={workout_id}", safe="")
-    return NTC_BRANCH_LINK.format(path, path)
 
 
 def import_ntc_catalog(json_path: str | None = None) -> dict:
@@ -310,8 +303,6 @@ def schedule_ntc_workout(
     workout_id = row["source_file"]
     ntc_link = _ntc_workout_deep_link(workout_id)
     intent_link = _ntc_workout_intent_link(workout_id)
-    branch_link = _ntc_workout_branch_link(workout_id)
-    desc_parts.append(f"[Open exact workout in NTC (HTTPS)]({branch_link})")
     desc_parts.append(f"[Open in NTC (native)]({ntc_link})")
     desc_parts.append(f"[Open in NTC (Android intent)]({intent_link})")
     if NTC_PUBLIC_BASE_URL.startswith("https://"):
