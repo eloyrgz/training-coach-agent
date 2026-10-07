@@ -14,12 +14,14 @@ The bot maintains separate conversation history per user.
 import os
 import logging
 import asyncio
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage, AIMessage
 from telegram import Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     MessageHandler,
     ContextTypes,
@@ -27,8 +29,9 @@ from telegram.ext import (
 )
 
 from chat_agent import run_agent
+from activity_notifications import build_activity_keyboard, build_note_keyboard, build_rpe_keyboard
 from injury_agent import run_injury_assessment, close_db_memory as close_injury_memory
-from coach_tools import memory as db_memory
+from coach_tools import memory as db_memory, save_activity_note, save_activity_rpe
 from sync_pipeline import build_pipeline_from_env
 
 load_dotenv(override=True)
@@ -58,14 +61,89 @@ def _is_allowed(user_id: int) -> bool:
     return not ALLOWED_USER_IDS or user_id in ALLOWED_USER_IDS
 
 
+def _is_notification_chat_allowed(user_id: int, chat_id: int) -> bool:
+    return bool(ALLOWED_USER_IDS) and user_id in ALLOWED_USER_IDS and chat_id == user_id
+
+
 def _trim_history(history: list) -> list:
     """Keep only the last MAX_HISTORY_TURNS human+AI pairs."""
     pairs = []
-    for msg in history:
-        if isinstance(msg, (HumanMessage, AIMessage)):
-            pairs.append(msg)
+    for message in history:
+        if isinstance(message, (HumanMessage, AIMessage)):
+            pairs.append(message)
     return pairs[-(MAX_HISTORY_TURNS * 2):]
 
+
+async def handle_note_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+
+    message = query.message
+    user_id = query.from_user.id
+    chat_id = message.chat_id if message else None
+    if chat_id is None or not _is_notification_chat_allowed(user_id, chat_id):
+        await query.answer("⛔ No tienes acceso a esta acción.", show_alert=True)
+        return
+
+    parts = (query.data or "").split(":", 1)
+    if len(parts) != 2 or parts[0] != "note" or not parts[1]:
+        await query.answer("Acción no válida.", show_alert=True)
+        return
+
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=30)
+    pending_saved = await asyncio.get_event_loop().run_in_executor(
+        None, db_memory.set_pending_input, chat_id, parts[1], expires_at
+    )
+    if not pending_saved:
+        await query.answer("No se pudo preparar la nota. Inténtalo de nuevo.", show_alert=True)
+        return
+
+    await query.answer()
+    await message.reply_text("Escribe la nota para este entrenamiento. Tienes 30 minutos.")
+
+
+async def handle_rpe_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if not query:
+        return
+
+    message = query.message
+    user_id = query.from_user.id
+    chat_id = message.chat_id if message else None
+    if chat_id is None or not _is_notification_chat_allowed(user_id, chat_id):
+        await query.answer("⛔ No tienes acceso a esta acción.", show_alert=True)
+        return
+
+    parts = (query.data or "").split(":")
+    if len(parts) != 3 or parts[0] != "rpe" or not parts[1]:
+        await query.answer("Acción no válida.", show_alert=True)
+        return
+    try:
+        rpe = int(parts[2])
+    except ValueError:
+        await query.answer("RPE no válido.", show_alert=True)
+        return
+    if not 1 <= rpe <= 10:
+        await query.answer("RPE no válido.", show_alert=True)
+        return
+
+    result = await asyncio.get_event_loop().run_in_executor(
+        None, save_activity_rpe, parts[1], rpe
+    )
+    if result.get("error") or not result.get("local_db_updated"):
+        await query.answer(result.get("error", "No se pudo guardar el RPE."), show_alert=True)
+        return
+
+    await query.answer()
+    confirmation = f"RPE {rpe} guardado."
+    if not result.get("intervals_icu_updated"):
+        confirmation += " No se pudo sincronizar con Intervals.icu."
+    original_text = message.text or message.caption or ""
+    await query.edit_message_text(
+        f"{original_text}\n\n{confirmation}".strip(),
+        reply_markup=build_note_keyboard(parts[1]),
+    )
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
@@ -226,6 +304,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not user_text:
         return
 
+    chat_id = update.effective_chat.id
+    pending = await asyncio.get_event_loop().run_in_executor(
+        None, db_memory.get_pending_input, chat_id
+    )
+    if pending:
+        if not _is_notification_chat_allowed(user.id, chat_id):
+            await update.message.reply_text("⛔ No tienes acceso a esta acción.")
+            return
+        result = await asyncio.get_event_loop().run_in_executor(
+            None, save_activity_note, pending["activity_id"], user_text
+        )
+        if result.get("local_saved"):
+            await asyncio.get_event_loop().run_in_executor(
+                None, db_memory.clear_pending_input, chat_id
+            )
+            confirmation = "✅ Nota guardada."
+            if not result.get("intervals_icu_updated"):
+                confirmation += " No se pudo sincronizar con Intervals.icu."
+            await update.message.reply_text(confirmation)
+        else:
+            await update.message.reply_text(
+                "⚠️ No se pudo guardar la nota; sigue pendiente y puedes intentarlo de nuevo."
+            )
+        return
+
     # Show "typing..." indicator while the agent thinks
     await update.message.chat.send_action(ChatAction.TYPING)
 
@@ -277,6 +380,8 @@ def main() -> None:
     app.add_handler(CommandHandler("reset", reset))
     app.add_handler(CommandHandler("sync", sync))
     app.add_handler(CommandHandler("injury", injury))
+    app.add_handler(CallbackQueryHandler(handle_rpe_callback, pattern=r"^rpe:"))
+    app.add_handler(CallbackQueryHandler(handle_note_callback, pattern=r"^note:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     async def set_commands(_app):

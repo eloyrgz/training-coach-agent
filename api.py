@@ -5,34 +5,90 @@ Run:
     uvicorn api:app --host 0.0.0.0 --port 8000
 """
 
+import asyncio
 import os
 import html
 import re
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
+import logging
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
+from telegram import Bot
 from chat_agent import run_agent
 from coach_tools import memory as db_memory
+from activity_notifications import ActivityNotificationWorker
+from agent_memory import SupabaseAgentMemory
 from injury_agent import close_db_memory
 from sync_pipeline import build_pipeline_from_env
 
 load_dotenv(override=True)
+logger = logging.getLogger(__name__)
 
 # Optional: restrict access via a shared secret in the Authorization header.
 API_KEY = os.getenv("COACH_API_KEY", "")
 
 
+def _notification_chat_id() -> int | None:
+    raw_ids = os.getenv("TELEGRAM_ALLOWED_USER_IDS", "")
+    try:
+        chat_ids = {int(value.strip()) for value in raw_ids.split(",") if value.strip()}
+    except ValueError:
+        logger.warning("Invalid TELEGRAM_ALLOWED_USER_IDS; activity worker disabled")
+        return None
+    if len(chat_ids) != 1:
+        return None
+    chat_id = next(iter(chat_ids))
+    return chat_id if chat_id > 0 else None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
+    stop_event = asyncio.Event()
+    notification_task = None
+    notification_bot = None
+    notification_memory = None
+    chat_id = _notification_chat_id()
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
+    if bot_token and chat_id:
+        try:
+            notification_memory = SupabaseAgentMemory()
+            notification_bot = Bot(bot_token)
+            await notification_bot.initialize()
+            worker = ActivityNotificationWorker(
+                notification_memory,
+                notification_bot,
+                chat_id,
+                sync_missing_activity=lambda: _run_sync(2),
+            )
+            notification_task = asyncio.create_task(worker.run(stop_event))
+        except Exception:
+            logger.exception("Could not start activity notification worker")
+            if notification_bot:
+                await notification_bot.shutdown()
+            if notification_memory:
+                notification_memory.close()
+            notification_bot = None
+            notification_memory = None
+
     try:
-        db_memory.close()
+        yield
     finally:
-        close_db_memory()
+        if notification_task:
+            stop_event.set()
+            await notification_task
+        if notification_bot:
+            await notification_bot.shutdown()
+        if notification_memory:
+            notification_memory.close()
+        try:
+            db_memory.close()
+        finally:
+            close_db_memory()
 
 
 app = FastAPI(
@@ -186,3 +242,5 @@ def sync(req: SyncRequest, authorization: str | None = Header(default=None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync error: {e}")
     return SyncResponse(status="ok", days=req.days, message="Sync completed successfully.")
+
+

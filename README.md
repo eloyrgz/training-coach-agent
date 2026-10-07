@@ -95,6 +95,10 @@ Create a `.env` file in the root directory of your project using the following l
 # Athlete ID (Include the 'i' prefix if required by your API_KEY authorization type)
 INTERVALS_ATHLETE_ID=i87571
 INTERVALS_API_KEY=your_25_character_api_key
+# Optional: webhook/OAuth athlete ID if it differs from the personal API-key ID
+INTERVALS_WEBHOOK_ATHLETE_ID=2049151
+INTERVALS_OAUTH_CLIENT_ID=your_approved_app_client_id
+INTERVALS_OAUTH_CLIENT_SECRET=your_approved_app_client_secret
 
 # --- SUPABASE DATABASE CONFIG ---
 # Use the Pooler host (IPv4) if your local ISP network has strict IPv6 routing constraints
@@ -108,6 +112,8 @@ OPENAI_MODEL=gpt-4o-mini
 # --- FASTAPI CONFIG ---
 # Optional shared secret for Authorization: Bearer <COACH_API_KEY>
 COACH_API_KEY=your_long_random_secret
+# Secret shown/configured for the Intervals.icu app webhook (not a locally generated value)
+INTERVALS_WEBHOOK_SECRET=your_intervals_app_webhook_secret
 
 # Optional: baseline medical history used by injury_agent.py CLI
 # (previous injuries, surgeries, relevant conditions)
@@ -115,7 +121,8 @@ ATHLETE_MEDICAL_HISTORY="Neuroma pie derecho en 2024, recaídas con aumento brus
 
 # --- TELEGRAM BOT CONFIG ---
 TELEGRAM_BOT_TOKEN=your_bot_token_from_botfather
-# Optional: comma-separated Telegram user IDs allowed to use the bot
+# Comma-separated Telegram user IDs allowed to use the bot
+# Required for proactive activity feedback callbacks; callbacks deny access if unset
 # Leave empty to allow anyone (not recommended in production)
 TELEGRAM_ALLOWED_USER_IDS=123456789
 
@@ -194,6 +201,8 @@ curl -X POST http://localhost:8000/sync \
   -H "Authorization: Bearer $COACH_API_KEY" \
   -d '{"days":7}'
 ```
+
+Proactive notification architecture, OAuth setup, deployment, event lifecycle, feedback behavior, and troubleshooting are documented in [docs/PROACTIVE_NOTIFICATIONS.md](docs/PROACTIVE_NOTIFICATIONS.md). Apply `sql/proactive_notifications.sql` before using notifications on a new database.
 
 ### CLI injury-risk assessment
 
@@ -300,3 +309,7 @@ Once the bot is running, the following commands are available in the Telegram ch
 - Telegram bot (`telegram_bot.py`): keeps per-user in-memory conversation history capped at the last 10 turns (10 user messages + 10 bot replies). Use `/reset` to clear it.
 - CLI chat (`chat_agent.py`): keeps in-memory conversation history for the whole process without an explicit turn cap.
 - In both modes, history is not persisted across process restarts.
+
+### Proactive activity feedback groundwork
+
+Apply `sql/proactive_notifications.sql` to the Supabase database before using the activity notification ledger. RPE feedback callbacks require `TELEGRAM_ALLOWED_USER_IDS` to contain the permitted user ID and are accepted only in that user's private chat. The webhook-only service is `intervals-webhook.service`; its Home Assistant NGINX server block is `deploy/intervals-webhook.conf`.

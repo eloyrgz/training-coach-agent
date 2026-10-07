@@ -44,6 +44,231 @@ class SupabaseAgentMemory(PgVectorMemory):
             print(f"⚠️ Error fetching latest metrics from Supabase: {e}")
             return None
 
+    def get_activity_by_id(self, activity_id: str):
+        """Return one synced activity using its Intervals.icu ID."""
+        query = """
+        SELECT
+            activity_id, activity_date::text, activity_name, activity_type,
+            distance_meters, moving_time_seconds, elevation_gain_meters,
+            rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb
+        FROM training_metrics
+        WHERE activity_id = %s
+        LIMIT 1;
+        """
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(query, (activity_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            print(f"⚠️ Error fetching activity {activity_id}: {e}")
+            return None
+
+    def get_activities_without_events(self, days_back: int = 2) -> list[str]:
+        """Return recent qualifying activities that have not been notified yet."""
+        query = """
+        SELECT metric.activity_id
+        FROM training_metrics AS metric
+        WHERE metric.activity_date::date >= CURRENT_DATE - %s
+            AND metric.moving_time_seconds >= 300
+            AND metric.rpe IS NULL
+            AND NOT EXISTS (
+                SELECT 1
+                FROM activity_events AS event
+                WHERE event.activity_id = metric.activity_id
+            )
+        ORDER BY metric.activity_date DESC;
+        """
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(query, (max(1, days_back),))
+                return [row["activity_id"] for row in cursor.fetchall()]
+        except Exception as e:
+            print(f"⚠️ Error finding unnotified activities: {e}")
+            return []
+
+    def enqueue_activity_event(self, activity_id: str) -> bool | None:
+        """Insert a notification event; return False for duplicates and None on DB errors."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO activity_events (activity_id)
+                    VALUES (%s)
+                    ON CONFLICT (activity_id) DO NOTHING
+                    RETURNING activity_id;
+                    """,
+                    (activity_id,),
+                )
+                inserted = cursor.fetchone() is not None
+                self.conn.commit()
+                return inserted
+        except Exception as e:
+            print(f"⚠️ Error enqueueing activity {activity_id}: {e}")
+            self.conn.rollback()
+            return None
+
+    def claim_next_activity_event(self):
+        """Atomically claim one due event, recovering work left processing after a crash."""
+        query = """
+        WITH next_event AS (
+            SELECT activity_id
+            FROM activity_events
+            WHERE (
+                status IN ('queued', 'failed')
+                AND attempts < 8
+                AND scheduled_at <= now()
+            ) OR (
+                status = 'processing'
+                AND updated_at < now() - interval '5 minutes'
+            )
+            ORDER BY scheduled_at, created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+        )
+        UPDATE activity_events AS event
+        SET status = 'processing', attempts = event.attempts + 1, updated_at = now()
+        FROM next_event
+        WHERE event.activity_id = next_event.activity_id
+        RETURNING event.activity_id, event.attempts;
+        """
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(query)
+                row = cursor.fetchone()
+                self.conn.commit()
+                return dict(row) if row else None
+        except Exception as e:
+            print(f"⚠️ Error claiming activity notification: {e}")
+            self.conn.rollback()
+            return None
+
+    def complete_activity_event(
+        self,
+        activity_id: str,
+        status: str,
+        summary: str | None = None,
+        chat_id: int | None = None,
+        message_id: int | None = None,
+    ) -> bool:
+        """Persist a terminal or delivered state for a claimed event."""
+        if status not in ("awaiting_feedback", "done"):
+            raise ValueError("Invalid completed activity event status")
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE activity_events
+                    SET status = %s, summary = %s, tg_chat_id = %s,
+                        tg_message_id = %s, last_error = NULL, updated_at = now()
+                    WHERE activity_id = %s AND status = 'processing';
+                    """,
+                    (status, summary, chat_id, message_id, activity_id),
+                )
+                updated = cursor.rowcount == 1
+                self.conn.commit()
+                return updated
+        except Exception as e:
+            print(f"⚠️ Error completing activity notification {activity_id}: {e}")
+            self.conn.rollback()
+            return False
+
+    def retry_activity_event(self, activity_id: str, error: str, delay_seconds: int = 60) -> bool:
+        """Schedule another attempt, stopping after eight total claims."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE activity_events
+                    SET status = CASE WHEN attempts < 8 THEN 'queued' ELSE 'failed' END,
+                        scheduled_at = now() + (%s * interval '1 second'),
+                        last_error = %s, updated_at = now()
+                    WHERE activity_id = %s AND status = 'processing';
+                    """,
+                    (max(1, delay_seconds), error[:1000], activity_id),
+                )
+                updated = cursor.rowcount == 1
+                self.conn.commit()
+                return updated
+        except Exception as e:
+            print(f"⚠️ Error scheduling retry for activity {activity_id}: {e}")
+            self.conn.rollback()
+            return False
+
+    def set_pending_input(self, chat_id: int, activity_id: str, expires_at) -> bool:
+        """Set the activity that the chat's next text message should annotate."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO pending_input (chat_id, activity_id, expires_at)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (chat_id) DO UPDATE SET
+                        activity_id = EXCLUDED.activity_id,
+                        expires_at = EXCLUDED.expires_at,
+                        created_at = now();
+                    """,
+                    (chat_id, activity_id, expires_at),
+                )
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"⚠️ Error setting pending input for chat {chat_id}: {e}")
+            self.conn.rollback()
+            return False
+
+    def get_pending_input(self, chat_id: int):
+        """Return an unexpired pending activity for a chat, removing expired state."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM pending_input WHERE chat_id = %s AND expires_at <= now();",
+                    (chat_id,),
+                )
+                cursor.execute(
+                    """
+                    SELECT activity_id, expecting
+                    FROM pending_input
+                    WHERE chat_id = %s AND expires_at > now();
+                    """,
+                    (chat_id,),
+                )
+                row = cursor.fetchone()
+                self.conn.commit()
+                return dict(row) if row else None
+        except Exception as e:
+            print(f"⚠️ Error fetching pending input for chat {chat_id}: {e}")
+            self.conn.rollback()
+            return None
+
+    def clear_pending_input(self, chat_id: int) -> bool:
+        """Clear pending note state for one chat."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute("DELETE FROM pending_input WHERE chat_id = %s;", (chat_id,))
+                self.conn.commit()
+                return True
+        except Exception as e:
+            print(f"⚠️ Error clearing pending input for chat {chat_id}: {e}")
+            self.conn.rollback()
+            return False
+
+    def save_activity_note(self, activity_id: str, note: str) -> bool:
+        """Save a note on the notification event for an exact activity ID."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    "UPDATE activity_events SET note = %s, updated_at = now() WHERE activity_id = %s;",
+                    (note, activity_id),
+                )
+                saved = cursor.rowcount == 1
+                self.conn.commit()
+                return saved
+        except Exception as e:
+            print(f"⚠️ Error saving note for activity {activity_id}: {e}")
+            self.conn.rollback()
+            return False
+
     _SORT_COLUMNS = {
         "date": "activity_date",
         "distance": "distance_meters",

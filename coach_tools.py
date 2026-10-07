@@ -217,6 +217,63 @@ def _fetch_planned(target_date: str) -> list:
         return []
 
 
+def save_activity_rpe(activity_id: str, rpe: int, client=None) -> dict:
+    """Save RPE to Intervals.icu and local storage for one exact activity ID."""
+    if not 1 <= rpe <= 10:
+        return {"error": "RPE must be between 1 and 10."}
+
+    activity = memory.get_activity_by_id(activity_id)
+    if not activity:
+        return {"error": f"No activity found in local DB for ID {activity_id}. Run sync first."}
+
+    client = client or IntervalsClient.from_env()
+    if not client:
+        return {"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY."}
+
+    try:
+        client.update_activity(activity_id, {"icu_rpe": rpe})
+        icu_ok = True
+    except IntervalsAPIError as e:
+        icu_ok = False
+        icu_error = str(e)
+
+    local_ok = memory.update_rpe_local(activity_id, rpe)
+    result = {
+        "activity": activity.get("activity_name"),
+        "activity_id": activity_id,
+        "rpe_saved": rpe,
+        "intervals_icu_updated": icu_ok,
+        "local_db_updated": local_ok,
+    }
+    if not icu_ok:
+        result["intervals_icu_error"] = icu_error
+    return result
+
+
+def save_activity_note(activity_id: str, note: str, client=None) -> dict:
+    """Save a note locally and post it to the exact Intervals.icu activity."""
+    if not note.strip():
+        return {"error": "Note cannot be empty."}
+
+    local_ok = memory.save_activity_note(activity_id, note.strip())
+    if not local_ok:
+        return {"error": f"Could not save note for activity {activity_id} locally."}
+
+    client = client or IntervalsClient.from_env()
+    if not client:
+        return {"local_saved": True, "intervals_icu_updated": False}
+
+    try:
+        client.post_activity_message(activity_id, note.strip())
+        return {"local_saved": True, "intervals_icu_updated": True}
+    except IntervalsAPIError as e:
+        return {
+            "local_saved": True,
+            "intervals_icu_updated": False,
+            "intervals_icu_error": str(e),
+        }
+
+
 @tool
 def log_rpe(rpe: int, target_date: Optional[str] = None, activity_name: Optional[str] = None) -> dict:
     """
@@ -251,27 +308,9 @@ def log_rpe(rpe: int, target_date: Optional[str] = None, activity_name: Optional
     activity_id = act["activity_id"]
     name = act["activity_name"]
 
-    # --- Update Intervals.icu ---
-    try:
-        client.update_activity(activity_id, {"icu_rpe": rpe})
-        icu_ok = True
-    except IntervalsAPIError as e:
-        icu_ok = False
-        icu_error = str(e)
-
-    # --- Update local DB ---
-    local_ok = memory.update_rpe_local(activity_id, rpe)
-
-    result = {
-        "date": target,
-        "activity": name,
-        "activity_id": activity_id,
-        "rpe_saved": rpe,
-        "intervals_icu_updated": icu_ok,
-        "local_db_updated": local_ok,
-    }
-    if not icu_ok:
-        result["intervals_icu_error"] = icu_error
+    result = save_activity_rpe(activity_id, rpe, client)
+    result["date"] = target
+    result["activity"] = name
     return result
 
 

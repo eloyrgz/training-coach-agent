@@ -1,0 +1,14 @@
+[Unit]
+Description=Intervals.icu Webhook Receiver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/eloy/personal-agent/training-coach-agent
+ExecStart=/home/eloy/personal-agent/training-coach-agent/.venv/bin/uvicorn intervals_webhook:app --host 192.168.0.2 --port 8010 --no-access-log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
