@@ -9,16 +9,19 @@ import asyncio
 import os
 import html
 import re
+from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import logging
+import httpx
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from telegram import Bot
-from chat_agent import run_agent
+from chat_agent import run_agent, run_weekly_recap_agent
 from coach_tools import memory as db_memory
 from activity_notifications import ActivityNotificationWorker
 from agent_memory import SupabaseAgentMemory
@@ -131,6 +134,17 @@ class SyncResponse(BaseModel):
     message: str
 
 
+class WeeklyRecapRequest(BaseModel):
+    week_start: date = Field(..., description="Monday that starts the completed training week")
+
+
+class WeeklyRecapResponse(BaseModel):
+    status: str
+    week_start: date
+    week_end: date
+    provider_message_id: str | None = None
+
+
 # --- In-memory conversation store (keyed by conversation_id) ---
 
 _conversations: dict[str, list] = {}
@@ -158,6 +172,49 @@ def _run_sync(days: int):
         pipeline.sync_activities(days_back=days)
     finally:
         pipeline.close()
+
+
+def _validate_recap_week(week_start: date) -> date:
+    if week_start.weekday() != 0:
+        raise HTTPException(status_code=422, detail="week_start must be a Monday")
+    today_madrid = datetime.now(ZoneInfo("Europe/Madrid")).date()
+    current_week_start = today_madrid - timedelta(days=today_madrid.weekday())
+    if week_start >= current_week_start:
+        raise HTTPException(status_code=422, detail="week_start must refer to a completed week")
+    return week_start + timedelta(days=6)
+
+
+def _send_weekly_recap_email(week_start: date, week_end: date, content: str) -> str:
+    api_key = os.getenv("RESEND_API_KEY", "")
+    sender = os.getenv("WEEKLY_RECAP_EMAIL_FROM", "")
+    recipient = os.getenv("WEEKLY_RECAP_EMAIL_TO", "")
+    if not api_key or not sender or not recipient:
+        raise RuntimeError(
+            "RESEND_API_KEY, WEEKLY_RECAP_EMAIL_FROM, and WEEKLY_RECAP_EMAIL_TO are required"
+        )
+
+    subject = f"Resumen de entrenamiento: {week_start.isoformat()} - {week_end.isoformat()}"
+    response = httpx.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Idempotency-Key": f"weekly-recap-{week_start.isoformat()}",
+        },
+        json={
+            "from": sender,
+            "to": [recipient],
+            "subject": subject,
+            "text": content,
+            "html": f"<div style=\"font-family: sans-serif; white-space: pre-wrap\">{html.escape(content)}</div>",
+        },
+        timeout=20,
+    )
+    if response.is_error:
+        raise RuntimeError(f"Resend returned HTTP {response.status_code}")
+    message_id = response.json().get("id")
+    if not isinstance(message_id, str) or not message_id:
+        raise RuntimeError("Resend response did not contain an email ID")
+    return message_id
 
 
 # --- Endpoints ---
@@ -242,5 +299,50 @@ def sync(req: SyncRequest, authorization: str | None = Header(default=None)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Sync error: {e}")
     return SyncResponse(status="ok", days=req.days, message="Sync completed successfully.")
+
+
+@app.post("/weekly-recap", response_model=WeeklyRecapResponse)
+def weekly_recap(
+    req: WeeklyRecapRequest,
+    authorization: str | None = Header(default=None),
+):
+    """Generate and email the recap for one completed Monday-Sunday week."""
+    _check_auth(authorization)
+    week_end = _validate_recap_week(req.week_start)
+
+    try:
+        claimed = db_memory.claim_weekly_recap(req.week_start)
+    except Exception as error:
+        logger.exception("Could not claim weekly recap %s", req.week_start)
+        raise HTTPException(status_code=503, detail="Could not access weekly recap ledger") from error
+    if not claimed:
+        return WeeklyRecapResponse(
+            status="already_sent_or_processing",
+            week_start=req.week_start,
+            week_end=week_end,
+        )
+
+    try:
+        content = run_weekly_recap_agent(req.week_start.isoformat(), week_end.isoformat()).strip()
+        if not content:
+            raise RuntimeError("The coach returned an empty weekly recap")
+        db_memory.set_weekly_recap_content(req.week_start, content)
+        provider_message_id = _send_weekly_recap_email(req.week_start, week_end, content)
+        if not db_memory.complete_weekly_recap(req.week_start, provider_message_id):
+            raise RuntimeError("Email was accepted but recap delivery state was not persisted")
+    except Exception as error:
+        try:
+            db_memory.fail_weekly_recap(req.week_start, str(error))
+        except Exception:
+            logger.exception("Could not record weekly recap failure for %s", req.week_start)
+        logger.exception("Could not deliver weekly recap for %s", req.week_start)
+        raise HTTPException(status_code=502, detail="Weekly recap generation or delivery failed") from error
+
+    return WeeklyRecapResponse(
+        status="sent",
+        week_start=req.week_start,
+        week_end=week_end,
+        provider_message_id=provider_message_id,
+    )
 
 

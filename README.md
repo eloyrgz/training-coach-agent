@@ -115,6 +115,11 @@ COACH_API_KEY=your_long_random_secret
 # Secret shown/configured for the Intervals.icu app webhook (not a locally generated value)
 INTERVALS_WEBHOOK_SECRET=your_intervals_app_webhook_secret
 
+# --- WEEKLY RECAP EMAIL CONFIG ---
+RESEND_API_KEY=re_your_resend_api_key
+WEEKLY_RECAP_EMAIL_FROM=Training Coach <training@example.com>
+WEEKLY_RECAP_EMAIL_TO=you@example.com
+
 # Optional: baseline medical history used by injury_agent.py CLI
 # (previous injuries, surgeries, relevant conditions)
 ATHLETE_MEDICAL_HISTORY="Neuroma pie derecho en 2024, recaídas con aumento brusco de carga"
@@ -177,6 +182,7 @@ Main endpoints:
 | `POST` | `/chat` | Sends a coach message and returns reply + `conversation_id` |
 | `POST` | `/chat/reset` | Clears in-memory history for a `conversation_id` |
 | `POST` | `/sync` | Runs Intervals.icu → Supabase sync for the last `N` days |
+| `POST` | `/weekly-recap` | Generates and emails one completed Monday-Sunday week |
 
 Scheduled NTC workout descriptions link to the static handoff page at
 `https://eloyrgz.github.io/personal-agent/ntc.html?id={workout_id}`. GitHub Pages
@@ -201,6 +207,29 @@ curl -X POST http://localhost:8000/sync \
   -H "Authorization: Bearer $COACH_API_KEY" \
   -d '{"days":7}'
 ```
+
+Weekly recap example (call from the Monday scheduler with the previous Monday):
+
+```bash
+curl --fail -X POST http://localhost:8000/weekly-recap \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $COACH_API_KEY" \
+  -d '{"week_start":"2026-09-28"}'
+```
+
+Configure a verified sender in Resend and set all three recap email variables above. Apply
+`sql/proactive_notifications.sql` to create the idempotency ledger. The endpoint rejects
+weeks that have not completed, and duplicate or concurrent requests do not send another
+email. The included systemd user timer runs the previous week's recap every Monday at 07:00
+Europe/Madrid. Install and enable it with:
+
+```bash
+systemctl --user link "$PWD/training-coach-weekly-recap.service" "$PWD/training-coach-weekly-recap.timer"
+systemctl --user daemon-reload
+systemctl --user enable --now training-coach-weekly-recap.timer
+```
+
+The one-shot runner calls the local coach API with that week's Monday as `week_start`.
 
 Proactive notification architecture, OAuth setup, deployment, event lifecycle, feedback behavior, and troubleshooting are documented in [docs/PROACTIVE_NOTIFICATIONS.md](docs/PROACTIVE_NOTIFICATIONS.md). Apply `sql/proactive_notifications.sql` before using notifications on a new database.
 

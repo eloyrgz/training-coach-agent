@@ -1,0 +1,9 @@
+[Unit]
+Description=Send the weekly Training Coach recap email
+After=network-online.target training-coach-api.service
+Wants=network-online.target training-coach-api.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/eloy/personal-agent/training-coach-agent
+ExecStart=/home/eloy/personal-agent/training-coach-agent/.venv/bin/python weekly_recap_runner.py

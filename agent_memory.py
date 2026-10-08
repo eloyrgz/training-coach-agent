@@ -44,6 +44,93 @@ class SupabaseAgentMemory(PgVectorMemory):
             print(f"⚠️ Error fetching latest metrics from Supabase: {e}")
             return None
 
+    def claim_weekly_recap(self, week_start: date) -> bool:
+        """Claim one recap, allowing failed or abandoned work to be retried."""
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO weekly_recaps (week_start, status, attempts, claimed_at)
+                    VALUES (%s, 'processing', 1, now())
+                    ON CONFLICT (week_start) DO NOTHING
+                    RETURNING week_start;
+                    """,
+                    (week_start,),
+                )
+                claimed = cursor.fetchone() is not None
+                if not claimed:
+                    cursor.execute(
+                        """
+                        UPDATE weekly_recaps
+                        SET status = 'processing', attempts = attempts + 1,
+                            claimed_at = now(), updated_at = now(), last_error = NULL
+                        WHERE week_start = %s
+                            AND status <> 'sent'
+                            AND (status = 'failed' OR claimed_at < now() - interval '20 minutes')
+                        RETURNING week_start;
+                        """,
+                        (week_start,),
+                    )
+                    claimed = cursor.fetchone() is not None
+                self.conn.commit()
+                return claimed
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def set_weekly_recap_content(self, week_start: date, content: str) -> None:
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE weekly_recaps
+                    SET content = %s, updated_at = now()
+                    WHERE week_start = %s AND status = 'processing';
+                    """,
+                    (content, week_start),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError("Weekly recap claim was lost before content was saved")
+                self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def complete_weekly_recap(self, week_start: date, provider_message_id: str) -> bool:
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE weekly_recaps
+                    SET status = 'sent', provider_message_id = %s, sent_at = now(),
+                        updated_at = now(), last_error = NULL
+                    WHERE week_start = %s AND status = 'processing';
+                    """,
+                    (provider_message_id, week_start),
+                )
+                completed = cursor.rowcount == 1
+                self.conn.commit()
+                return completed
+        except Exception:
+            self.conn.rollback()
+            raise
+
+    def fail_weekly_recap(self, week_start: date, error: str) -> None:
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(
+                    """
+                    UPDATE weekly_recaps
+                    SET status = 'failed', last_error = %s, updated_at = now()
+                    WHERE week_start = %s AND status = 'processing';
+                    """,
+                    (error[:2000], week_start),
+                )
+                self.conn.commit()
+        except Exception:
+            self.conn.rollback()
+            raise
+
     def get_activity_by_id(self, activity_id: str):
         """Return one synced activity using its Intervals.icu ID."""
         query = """

@@ -53,6 +53,9 @@ Keep these values in `training-coach-agent/.env`; do not paste secrets into chat
 | `SUPABASE_POOLER_DB_URI` or `SUPABASE_DB_URI` | Database connection used by the webhook receiver and coach |
 | `TELEGRAM_BOT_TOKEN` | Bot token used by the notification worker |
 | `TELEGRAM_ALLOWED_USER_IDS` | Must contain exactly one positive ID for the notification worker |
+| `RESEND_API_KEY` | Resend API key used for weekly recap delivery |
+| `WEEKLY_RECAP_EMAIL_FROM` | Verified Resend sender, for example `Training Coach <training@example.com>` |
+| `WEEKLY_RECAP_EMAIL_TO` | Recipient address for the weekly recap |
 
 The webhook body is an Intervals.icu envelope with a top-level `secret` and an `events` array. Do not send the secret in an Authorization header. The receiver accepts only `ACTIVITY_ANALYZED` events matching the configured webhook athlete and an activity ID.
 
@@ -62,6 +65,7 @@ The schema is in `sql/proactive_notifications.sql`. It creates:
 
 - `activity_events`: unique event ledger, worker state, attempt count, summary, Telegram message metadata, and activity note.
 - `pending_input`: one expiring note prompt per private Telegram chat.
+- `weekly_recaps`: one idempotency and delivery-state row per Monday week start.
 
 Apply the migration once to a new Supabase database before enabling the worker. It uses `IF NOT EXISTS` for repeat-safe setup. RPE remains canonical in `training_metrics`; the event table is notification state, not a duplicate activity metrics table.
 
@@ -81,6 +85,34 @@ curl --fail http://192.168.0.2:8010/health
 After changing the NGINX include, restart the Home Assistant NGINX add-on (`core_nginx_proxy`) and check the public host. The webhook virtual host returns 404 for all paths other than its exact webhook, OAuth start, and OAuth callback routes.
 
 The coach API worker starts only when `TELEGRAM_BOT_TOKEN` and exactly one allowed Telegram user ID are configured. It shares the notification database schema but uses its own DB connection.
+
+## Weekly Recap Email
+
+Apply `sql/proactive_notifications.sql` and configure the three Resend environment variables.
+The included `training-coach-weekly-recap.timer` calls the local API every Monday at 07:00
+Europe/Madrid. Enable it as a user unit with:
+
+```bash
+systemctl --user link "$PWD/training-coach-weekly-recap.service" "$PWD/training-coach-weekly-recap.timer"
+systemctl --user daemon-reload
+systemctl --user enable --now training-coach-weekly-recap.timer
+```
+
+The equivalent authenticated API request must contain the previous Monday as `week_start`,
+for example:
+
+```json
+{"week_start":"2026-09-28"}
+```
+
+The API accepts only completed Monday-Sunday weeks. It queries the coach's training data
+through read-only tools, saves the narrative to `weekly_recaps`, and sends text and HTML
+email through Resend. The week-start primary key prevents concurrent or repeated sends;
+failed and abandoned claims can be retried. Resend receives a stable idempotency key for the
+week to cover a crash after provider acceptance but before the database records success.
+The caller must be able to reach the coach API and send `Authorization: Bearer <COACH_API_KEY>`.
+Schedule against `Europe/Madrid` or calculate the previous week using that timezone; do not
+assume a fixed UTC offset across daylight-saving changes.
 
 ## Event Lifecycle
 

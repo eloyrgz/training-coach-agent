@@ -26,3 +26,17 @@ CREATE TABLE IF NOT EXISTS pending_input (
     expires_at timestamptz NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS weekly_recaps (
+    week_start date PRIMARY KEY,
+    status text NOT NULL DEFAULT 'processing'
+        CHECK (status IN ('processing', 'sent', 'failed')),
+    content text,
+    provider_message_id text,
+    attempts integer NOT NULL DEFAULT 1 CHECK (attempts > 0),
+    last_error text,
+    claimed_at timestamptz NOT NULL DEFAULT now(),
+    sent_at timestamptz,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
+);
