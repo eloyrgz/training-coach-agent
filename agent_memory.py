@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from pgvector_agent_memory import PgVectorMemory
 
 class SupabaseAgentMemory(PgVectorMemory):
@@ -136,7 +138,7 @@ class SupabaseAgentMemory(PgVectorMemory):
         query = """
         SELECT
             activity_id, activity_date::text, activity_name, activity_type,
-            distance_meters, moving_time_seconds, elevation_gain_meters,
+            distance_meters, moving_time_seconds, elevation_gain_meters, calories,
             rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb
         FROM training_metrics
         WHERE activity_id = %s
@@ -370,8 +372,8 @@ class SupabaseAgentMemory(PgVectorMemory):
         query = f"""
         SELECT
             activity_date::text, activity_name, activity_type,
-            distance_meters, moving_time_seconds, elevation_gain_meters,
-            rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb
+            distance_meters, moving_time_seconds, elevation_gain_meters, calories,
+            rpe, feel, icu_load, average_hr, fitness_ctl, fatigue_atl, form_tsb
         FROM training_metrics
         ORDER BY {sort_column} DESC NULLS LAST
         LIMIT %s;
@@ -391,8 +393,8 @@ class SupabaseAgentMemory(PgVectorMemory):
         base_query = f"""
         SELECT
             activity_date::text, activity_name, activity_type,
-            distance_meters, moving_time_seconds, elevation_gain_meters,
-            rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb
+            distance_meters, moving_time_seconds, elevation_gain_meters, calories,
+            rpe, feel, icu_load, average_hr, fitness_ctl, fatigue_atl, form_tsb
         FROM training_metrics
         WHERE activity_date::date BETWEEN %s AND %s
         """
@@ -410,6 +412,60 @@ class SupabaseAgentMemory(PgVectorMemory):
         except Exception as e:
             print(f"⚠️ Error fetching activities in range from Supabase: {e}")
             return []
+
+    def get_weekly_load_trend(self, week_start: date, week_end: date, lookback_weeks: int = 5):
+        """Return weekly activity volume and training-load trends through week_end."""
+        trend_start = week_start - timedelta(weeks=max(1, lookback_weeks) - 1)
+        query = """
+        SELECT
+            DATE_TRUNC('week', activity_date)::date::text AS week_start,
+            COUNT(*) AS sessions,
+            ROUND(COALESCE(SUM(moving_time_seconds), 0)::numeric / 3600.0, 2) AS hours,
+            ROUND(SUM(distance_meters)::numeric / 1000.0, 1) AS distance_km,
+            ROUND(SUM(icu_load)::numeric, 1) AS training_load,
+            ROUND(AVG(fitness_ctl)::numeric, 1) AS avg_ctl,
+            ROUND(AVG(fatigue_atl)::numeric, 1) AS avg_atl,
+            ROUND(AVG(form_tsb)::numeric, 1) AS avg_tsb,
+            ROUND(AVG(rpe)::numeric, 1) AS avg_rpe,
+            (ARRAY_AGG(fitness_ctl ORDER BY activity_date DESC NULLS LAST)
+                FILTER (WHERE fitness_ctl IS NOT NULL))[1] AS last_ctl,
+            (ARRAY_AGG(fatigue_atl ORDER BY activity_date DESC NULLS LAST)
+                FILTER (WHERE fatigue_atl IS NOT NULL))[1] AS last_atl,
+            (ARRAY_AGG(form_tsb ORDER BY activity_date DESC NULLS LAST)
+                FILTER (WHERE form_tsb IS NOT NULL))[1] AS last_tsb
+        FROM training_metrics
+        WHERE activity_date::date BETWEEN %s AND %s
+        GROUP BY 1
+        ORDER BY 1;
+        """
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(query, (trend_start, week_end))
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as error:
+            print(f"⚠️ Error fetching weekly load trend: {error}")
+            return []
+
+    def get_daily_wellness(self, start_date: date, end_date: date) -> dict[str, dict]:
+        """Return available daily wellness values keyed by their local date."""
+        query = """
+        SELECT
+            wellness_date::text AS wellness_date, weight_kg, steps, resting_hr,
+            sleep_seconds, sleep_score, avg_sleep_hr
+        FROM daily_wellness
+        WHERE wellness_date BETWEEN %s AND %s
+        ORDER BY wellness_date;
+        """
+        try:
+            with self._cursor() as cursor:
+                cursor.execute(query, (start_date, end_date))
+                return {
+                    row["wellness_date"]: dict(row)
+                    for row in cursor.fetchall()
+                }
+        except Exception as error:
+            print(f"⚠️ Error fetching daily wellness: {error}")
+            return {}
 
     def get_personal_bests(self, activity_type: str | None = None):
         """Returns personal bests and lifetime stats, optionally filtered by sport type"""

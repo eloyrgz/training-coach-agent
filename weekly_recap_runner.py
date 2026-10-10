@@ -1,7 +1,7 @@
-"""Call the coach API for the previous completed training week."""
+"""Call the coach API for the week ending on Sunday evening."""
 
 import os
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -11,10 +11,13 @@ from dotenv import load_dotenv
 API_URL = os.getenv("COACH_API_URL", "http://127.0.0.1:8000")
 
 
-def previous_week_start(today: date | None = None) -> date:
-    local_today = today or datetime.now(ZoneInfo("Europe/Madrid")).date()
-    current_monday = local_today - timedelta(days=local_today.weekday())
-    return current_monday - timedelta(days=7)
+def week_start_for_recap(now: datetime | None = None) -> date:
+    local_now = (now or datetime.now(ZoneInfo("Europe/Madrid"))).astimezone(
+        ZoneInfo("Europe/Madrid")
+    )
+    current_monday = local_now.date() - timedelta(days=local_now.weekday())
+    sunday_evening = local_now.weekday() == 6 and local_now.timetz().replace(tzinfo=None) >= time(21)
+    return current_monday if sunday_evening else current_monday - timedelta(days=7)
 
 
 def main() -> None:
@@ -23,7 +26,7 @@ def main() -> None:
     if not api_key:
         raise SystemExit("COACH_API_KEY is required")
 
-    week_start = previous_week_start()
+    week_start = week_start_for_recap()
     response = httpx.post(
         f"{API_URL.rstrip('/')}/weekly-recap",
         headers={"Authorization": f"Bearer {api_key}"},

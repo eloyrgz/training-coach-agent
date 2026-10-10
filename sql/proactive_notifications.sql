@@ -1,3 +1,23 @@
+ALTER TABLE training_metrics ADD COLUMN IF NOT EXISTS feel smallint;
+ALTER TABLE training_metrics ADD COLUMN IF NOT EXISTS average_hr numeric;
+ALTER TABLE training_metrics ADD COLUMN IF NOT EXISTS calories numeric;
+
+CREATE TABLE IF NOT EXISTS daily_wellness (
+    wellness_date date PRIMARY KEY,
+    weight_kg numeric,
+    steps integer,
+    resting_hr numeric,
+    sleep_seconds integer,
+    sleep_score numeric,
+    avg_sleep_hr numeric,
+    synced_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE daily_wellness ENABLE ROW LEVEL SECURITY;
+ALTER TABLE daily_wellness ADD COLUMN IF NOT EXISTS sleep_seconds integer;
+ALTER TABLE daily_wellness ADD COLUMN IF NOT EXISTS sleep_score numeric;
+ALTER TABLE daily_wellness ADD COLUMN IF NOT EXISTS avg_sleep_hr numeric;
+
 CREATE TABLE IF NOT EXISTS activity_events (
     activity_id text PRIMARY KEY,
     status text NOT NULL DEFAULT 'queued'

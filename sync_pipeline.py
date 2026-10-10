@@ -2,7 +2,7 @@ import os
 import sys
 import socket
 import psycopg2
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from dotenv import load_dotenv
 from sentence_transformers import SentenceTransformer
 from urllib.parse import urlparse
@@ -92,7 +92,10 @@ class TrainingDataPipeline:
                 duration = act.get('moving_time', 0)
                 elevation = act.get('total_elevation_gain', 0.0)
                 rpe = act.get('icu_rpe') or act.get('rpe')
+                feel = act.get('feel')
+                average_hr = act.get('average_hr') or act.get('average_heartrate')
                 load = act.get('icu_training_load')
+                calories = act.get('calories')
                 ctl = act.get('icu_ctl') or act.get('ctl')
                 atl = act.get('icu_atl') or act.get('atl')
                 # TSB is not returned by the API — compute it from CTL and ATL
@@ -101,17 +104,20 @@ class TrainingDataPipeline:
                 # 1. Upsert quantitative metrics
                 upsert_query = """
                 INSERT INTO training_metrics 
-                (activity_id, activity_date, activity_name, activity_type, distance_meters, moving_time_seconds, elevation_gain_meters, rpe, icu_load, fitness_ctl, fatigue_atl, form_tsb)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                (activity_id, activity_date, activity_name, activity_type, distance_meters, moving_time_seconds, elevation_gain_meters, calories, rpe, feel, icu_load, average_hr, fitness_ctl, fatigue_atl, form_tsb)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (activity_id) DO UPDATE SET
                     activity_name = EXCLUDED.activity_name,
+                    calories      = COALESCE(EXCLUDED.calories, training_metrics.calories),
                     rpe           = COALESCE(EXCLUDED.rpe, training_metrics.rpe),
+                    feel          = COALESCE(EXCLUDED.feel, training_metrics.feel),
                     icu_load      = COALESCE(EXCLUDED.icu_load, training_metrics.icu_load),
+                    average_hr    = COALESCE(EXCLUDED.average_hr, training_metrics.average_hr),
                     fitness_ctl   = EXCLUDED.fitness_ctl,
                     fatigue_atl   = EXCLUDED.fatigue_atl,
                     form_tsb      = EXCLUDED.form_tsb;
                 """
-                cur.execute(upsert_query, (activity_id, act_date, name, act_type, distance, duration, elevation, rpe, load, ctl, atl, tsb))
+                cur.execute(upsert_query, (activity_id, act_date, name, act_type, distance, duration, elevation, calories, rpe, feel, load, average_hr, ctl, atl, tsb))
                 
                 # 2. Extract subjective logs for context
                 notes = act.get('developer_text') or act.get('description')
@@ -127,6 +133,58 @@ class TrainingDataPipeline:
         
         print("Metrics synced successfully. Processing vector embeddings...")
         self._generate_pending_embeddings()
+        self.sync_daily_wellness(start_date, end_date)
+
+    def sync_daily_wellness(self, start_date: date, end_date: date) -> int:
+        """Upsert daily weight, steps, and resting HR from Intervals.icu."""
+        records = self.icu_client._get(
+            f"/api/v1/athlete/{self.athlete_id}/wellness",
+            params={"oldest": start_date.isoformat(), "newest": end_date.isoformat()},
+        )
+        upsert_query = """
+                INSERT INTO daily_wellness (
+                    wellness_date, weight_kg, steps, resting_hr,
+                    sleep_seconds, sleep_score, avg_sleep_hr
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (wellness_date) DO UPDATE SET
+            weight_kg = COALESCE(EXCLUDED.weight_kg, daily_wellness.weight_kg),
+            steps = COALESCE(EXCLUDED.steps, daily_wellness.steps),
+            resting_hr = COALESCE(EXCLUDED.resting_hr, daily_wellness.resting_hr),
+                    sleep_seconds = COALESCE(EXCLUDED.sleep_seconds, daily_wellness.sleep_seconds),
+                    sleep_score = COALESCE(EXCLUDED.sleep_score, daily_wellness.sleep_score),
+                    avg_sleep_hr = COALESCE(EXCLUDED.avg_sleep_hr, daily_wellness.avg_sleep_hr),
+            synced_at = now();
+        """
+        upserted = 0
+        with self.db_conn.cursor() as cursor:
+            for record in records:
+                wellness_id = record.get("id")
+                if not wellness_id:
+                    continue
+                try:
+                    wellness_date = datetime.strptime(str(wellness_id), "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+                weight = record.get("weight")
+                if isinstance(weight, bool):
+                    weight = None
+                cursor.execute(
+                    upsert_query,
+                        (
+                            wellness_date,
+                            weight,
+                            record.get("steps"),
+                            record.get("restingHR"),
+                            record.get("sleepSecs"),
+                            record.get("sleepScore"),
+                            record.get("avgSleepingHR"),
+                        ),
+                )
+                upserted += 1
+        self.db_conn.commit()
+        print(f"Synced {upserted} daily wellness records.")
+        return upserted
 
     def _generate_pending_embeddings(self):
         with self.db_conn.cursor() as cur:

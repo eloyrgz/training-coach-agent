@@ -1,8 +1,8 @@
 [Unit]
-Description=Run the weekly Training Coach recap every Monday morning
+Description=Run the weekly Training Coach recap every Sunday evening
 
 [Timer]
-OnCalendar=Mon *-*-* 07:00:00 Europe/Madrid
+OnCalendar=Sun *-*-* 21:00:00 Europe/Madrid
 Persistent=true
 Unit=training-coach-weekly-recap.service
 

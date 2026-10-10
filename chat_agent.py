@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from openai import RateLimitError
+from pydantic import BaseModel
 
 from coach_tools import ALL_TOOLS, memory as db_memory
 from plan_tools import PLAN_TOOLS
@@ -134,62 +135,39 @@ def call_llm_with_retry(messages: list, max_retries: int = 4, model=None) -> AIM
             wait = min(wait * 2, 60)
 
 
-def run_weekly_recap_agent(week_start: str, week_end: str) -> str:
-    """Write a weekly recap using read-only training and calendar tools."""
-    tool_names = (
-        "query_activities",
-        "get_volume_summary",
-        "get_ctl_trend",
-        "get_sport_breakdown",
-        "get_rest_days",
-        "compare_periods",
-        "get_scheduled_workouts",
-    )
-    recap_tools = [TOOLS_BY_NAME[name] for name in tool_names]
-    recap_tools_by_name = {tool.name: tool for tool in recap_tools}
+class WeeklyRecapNarrative(BaseModel):
+    summary_heading: str
+    summary: str
+    trends: str
+    next_week_suggestions: str
+
+
+def run_weekly_recap_agent(week_start: str, week_end: str, recap_data: dict) -> dict[str, str]:
+    """Generate the opening summary, comparisons, and suggestions from recap data."""
     recap_llm = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=0.3,
-        max_retries=0,
-    ).bind_tools(recap_tools)
+        max_retries=2,
+    ).with_structured_output(WeeklyRecapNarrative)
     messages = [
         SystemMessage(content=(
-            "Redacta en español un resumen semanal personal de entrenamiento, claro y breve. "
-            f"La semana es del {week_start} al {week_end}, ambos inclusive. "
-            "Consulta datos de esa semana y, cuando ayude, compáralos con los siete días anteriores. "
-            "Incluye volumen, sesiones y deportes, evolución de CTL/ATL/TSB, descanso, "
-            "RPE frente a carga, sesiones planificadas omitidas y actividades sin RPE cuando haya datos. "
-            "Usa solo hechos devueltos por las herramientas; señala datos ausentes en vez de inferirlos. "
-            "No modifiques datos, notas, planes ni el calendario. Termina con una observación práctica "
-            "para la semana siguiente, sin prescribir cambios de plan."
+            "Escribe en español y devuelve cuatro textos breves para un email de recapitulación semanal. "
+            "summary_heading es un título corto y específico, de 2 a 6 palabras, generado según el hallazgo principal. "
+            "No uses un título genérico ni 'Tu semana, en perspectiva'; no incluyas fechas. "
+            "summary abre el email con la observación principal sobre la semana y su carga total. "
+            "Empieza directamente por el contenido, sin título, fechas ni frases como 'Resumen de la semana'. "
+            "trends compara esta semana con las semanas anteriores disponibles, sin inventar datos. "
+            "next_week_suggestions contiene sugerencias concretas y prudentes basadas en esa tendencia; "
+            "no modifiques ni afirmes haber modificado el plan. Si faltan datos, dilo con claridad. "
+            "No repitas la tabla de entrenamientos: el email la añade por separado."
         )),
         HumanMessage(content=(
-            f"Prepara el resumen de entrenamiento para {week_start} a {week_end}. "
-            "Consulta las actividades, agregados, tendencia, días de descanso y sesiones planificadas "
-            "de este intervalo."
+            f"Semana a resumir: {week_start} a {week_end}, ambos inclusive.\n"
+            f"Datos verificados de actividad, carga y semanas anteriores:\n{json.dumps(recap_data, ensure_ascii=False, default=str)}"
         )),
     ]
-
-    for _ in range(9):
-        response = call_llm_with_retry(messages, model=recap_llm)
-        if not response.tool_calls:
-            return response.content or ""
-        messages.append(response)
-        for tool_call in response.tool_calls:
-            tool = recap_tools_by_name.get(tool_call["name"])
-            result = (
-                tool.invoke(tool_call["args"])
-                if tool
-                else {"error": "Tool is not available for weekly recap."}
-            )
-            messages.append(ToolMessage(
-                content=json.dumps(result, default=str),
-                tool_call_id=tool_call["id"],
-            ))
-
-    messages.append(HumanMessage(content="Escribe el resumen solo con los datos ya consultados."))
-    response = call_llm_with_retry(messages, model=recap_llm)
-    return response.content or ""
+    narrative = recap_llm.invoke(messages)
+    return narrative.model_dump()
 
 
 def run_agent(conversation_messages: list, max_tool_calls: int = 6) -> str:

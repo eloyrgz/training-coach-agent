@@ -27,6 +27,7 @@ from activity_notifications import ActivityNotificationWorker
 from agent_memory import SupabaseAgentMemory
 from injury_agent import close_db_memory
 from sync_pipeline import build_pipeline_from_env
+from weekly_recap_email import build_weekly_recap_email, summarize_activities
 
 load_dotenv(override=True)
 logger = logging.getLogger(__name__)
@@ -174,17 +175,32 @@ def _run_sync(days: int):
         pipeline.close()
 
 
-def _validate_recap_week(week_start: date) -> date:
+def _validate_recap_week(week_start: date, now: datetime | None = None) -> date:
     if week_start.weekday() != 0:
         raise HTTPException(status_code=422, detail="week_start must be a Monday")
-    today_madrid = datetime.now(ZoneInfo("Europe/Madrid")).date()
+    madrid = ZoneInfo("Europe/Madrid")
+    current_time = (now or datetime.now(madrid)).astimezone(madrid)
+    today_madrid = current_time.date()
     current_week_start = today_madrid - timedelta(days=today_madrid.weekday())
-    if week_start >= current_week_start:
-        raise HTTPException(status_code=422, detail="week_start must refer to a completed week")
+    if week_start > current_week_start:
+        raise HTTPException(status_code=422, detail="week_start cannot be in the future")
+    if week_start == current_week_start and (
+        current_time.weekday() != 6
+        or current_time.hour < 21
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="the current week can only be recapped on Sunday from 21:00 Europe/Madrid",
+        )
     return week_start + timedelta(days=6)
 
 
-def _send_weekly_recap_email(week_start: date, week_end: date, content: str) -> str:
+def _send_weekly_recap_email(
+    week_start: date,
+    week_end: date,
+    text_content: str,
+    html_content: str,
+) -> str:
     api_key = os.getenv("RESEND_API_KEY", "")
     sender = os.getenv("WEEKLY_RECAP_EMAIL_FROM", "")
     recipient = os.getenv("WEEKLY_RECAP_EMAIL_TO", "")
@@ -193,7 +209,7 @@ def _send_weekly_recap_email(week_start: date, week_end: date, content: str) -> 
             "RESEND_API_KEY, WEEKLY_RECAP_EMAIL_FROM, and WEEKLY_RECAP_EMAIL_TO are required"
         )
 
-    subject = f"Resumen de entrenamiento: {week_start.isoformat()} - {week_end.isoformat()}"
+    subject = f"Resumen de entrenamiento: Semana {week_start.isocalendar().week}"
     response = httpx.post(
         "https://api.resend.com/emails",
         headers={
@@ -204,8 +220,8 @@ def _send_weekly_recap_email(week_start: date, week_end: date, content: str) -> 
             "from": sender,
             "to": [recipient],
             "subject": subject,
-            "text": content,
-            "html": f"<div style=\"font-family: sans-serif; white-space: pre-wrap\">{html.escape(content)}</div>",
+            "text": text_content,
+            "html": html_content,
         },
         timeout=20,
     )
@@ -323,11 +339,29 @@ def weekly_recap(
         )
 
     try:
-        content = run_weekly_recap_agent(req.week_start.isoformat(), week_end.isoformat()).strip()
-        if not content:
-            raise RuntimeError("The coach returned an empty weekly recap")
-        db_memory.set_weekly_recap_content(req.week_start, content)
-        provider_message_id = _send_weekly_recap_email(req.week_start, week_end, content)
+        activities = db_memory.get_activities_in_range(
+            req.week_start.isoformat(), week_end.isoformat(), limit=100, sort_by="date"
+        )
+        activity_summary = summarize_activities(activities)
+        weekly_trend = db_memory.get_weekly_load_trend(req.week_start, week_end)
+        daily_wellness = db_memory.get_daily_wellness(req.week_start, week_end)
+        narrative = run_weekly_recap_agent(
+            req.week_start.isoformat(),
+            week_end.isoformat(),
+            {
+                "this_week": activity_summary,
+                "recent_weekly_trends": weekly_trend,
+                "daily_health_metrics": daily_wellness,
+            },
+        )
+        html_content, text_content = build_weekly_recap_email(
+            req.week_start, week_end, activities, activity_summary, narrative,
+            daily_wellness, weekly_trend,
+        )
+        db_memory.set_weekly_recap_content(req.week_start, text_content)
+        provider_message_id = _send_weekly_recap_email(
+            req.week_start, week_end, text_content, html_content
+        )
         if not db_memory.complete_weekly_recap(req.week_start, provider_message_id):
             raise RuntimeError("Email was accepted but recap delivery state was not persisted")
     except Exception as error:

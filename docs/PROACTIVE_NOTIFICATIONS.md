@@ -89,7 +89,9 @@ The coach API worker starts only when `TELEGRAM_BOT_TOKEN` and exactly one allow
 ## Weekly Recap Email
 
 Apply `sql/proactive_notifications.sql` and configure the three Resend environment variables.
-The included `training-coach-weekly-recap.timer` calls the local API every Monday at 07:00
+Rerun the migration after deploying recap changes so its idempotent `ALTER TABLE` statements
+add activity feel, average-HR, and sleep columns, plus the RLS-protected `daily_wellness` table.
+The included `training-coach-weekly-recap.timer` calls the local API every Sunday at 21:00
 Europe/Madrid. Enable it as a user unit with:
 
 ```bash
@@ -98,18 +100,23 @@ systemctl --user daemon-reload
 systemctl --user enable --now training-coach-weekly-recap.timer
 ```
 
-The equivalent authenticated API request must contain the previous Monday as `week_start`,
+The equivalent authenticated API request must contain that week's Monday as `week_start`,
 for example:
 
 ```json
 {"week_start":"2026-09-28"}
 ```
 
-The API accepts only completed Monday-Sunday weeks. It queries the coach's training data
-through read-only tools, saves the narrative to `weekly_recaps`, and sends text and HTML
-email through Resend. The week-start primary key prevents concurrent or repeated sends;
-failed and abandoned claims can be retried. Resend receives a stable idempotency key for the
-week to cover a crash after provider acceptance but before the database records success.
+The API accepts the current week only on Sunday from 21:00 onward. It creates an HTML report
+with an agent-written summary, per-type totals, a daily activity diary, recent load trends,
+and next-week suggestions, plus a plain-text alternative. The sync fetches daily wellness
+records from Intervals.icu (`id`, `weight`, `steps`, `restingHR`, `sleepSecs`, `sleepScore`,
+`avgSleepingHR`) into `daily_wellness`. The email shows sleep metrics per day and email-safe
+daily charts; missing values display as unavailable. Run `python sync_pipeline.py --days 90`
+to backfill recent activity and wellness records. The week-start primary key
+prevents concurrent or repeated sends; failed and abandoned claims can be retried. Resend
+receives a stable idempotency key for the week to cover a crash after provider acceptance
+but before the database records success.
 The caller must be able to reach the coach API and send `Authorization: Bearer <COACH_API_KEY>`.
 Schedule against `Europe/Madrid` or calculate the previous week using that timezone; do not
 assume a fixed UTC offset across daylight-saving changes.

@@ -182,7 +182,7 @@ Main endpoints:
 | `POST` | `/chat` | Sends a coach message and returns reply + `conversation_id` |
 | `POST` | `/chat/reset` | Clears in-memory history for a `conversation_id` |
 | `POST` | `/sync` | Runs Intervals.icu → Supabase sync for the last `N` days |
-| `POST` | `/weekly-recap` | Generates and emails one completed Monday-Sunday week |
+| `POST` | `/weekly-recap` | Generates and emails the Monday-Sunday recap |
 
 Scheduled NTC workout descriptions link to the static handoff page at
 `https://eloyrgz.github.io/personal-agent/ntc.html?id={workout_id}`. GitHub Pages
@@ -208,7 +208,7 @@ curl -X POST http://localhost:8000/sync \
   -d '{"days":7}'
 ```
 
-Weekly recap example (call from the Monday scheduler with the previous Monday):
+Weekly recap example (call Sunday from 21:00 Madrid time with that Monday):
 
 ```bash
 curl --fail -X POST http://localhost:8000/weekly-recap \
@@ -217,11 +217,11 @@ curl --fail -X POST http://localhost:8000/weekly-recap \
   -d '{"week_start":"2026-09-28"}'
 ```
 
-Configure a verified sender in Resend and set all three recap email variables above. Apply
-`sql/proactive_notifications.sql` to create the idempotency ledger. The endpoint rejects
-weeks that have not completed, and duplicate or concurrent requests do not send another
-email. The included systemd user timer runs the previous week's recap every Monday at 07:00
-Europe/Madrid. Install and enable it with:
+Configure the Resend sender and set all three recap email variables above. Apply or rerun
+`sql/proactive_notifications.sql`; its idempotent `ALTER TABLE` statements add feel, HR,
+calories, and sleep columns and create the RLS-protected daily wellness table. The endpoint accepts the current Monday-start week only on Sunday from 21:00
+Europe/Madrid. Duplicate or concurrent requests do not send another email. The included
+systemd user timer runs every Sunday at 21:00 Europe/Madrid. Install and enable it with:
 
 ```bash
 systemctl --user link "$PWD/training-coach-weekly-recap.service" "$PWD/training-coach-weekly-recap.timer"
@@ -229,7 +229,15 @@ systemctl --user daemon-reload
 systemctl --user enable --now training-coach-weekly-recap.timer
 ```
 
-The one-shot runner calls the local coach API with that week's Monday as `week_start`.
+The email contains an agent-written opening and trend/suggestion sections, a compact
+Intervals.icu-style weekly totals strip, a daily workout diary, sleep metrics, and email-safe
+daily charts. The strip shows duration, load, ramp, fitness, fatigue, form, calories, elevation,
+and a column for each activity type. The sync reads
+`weight`, `steps`, `restingHR`, `sleepSecs`, `sleepScore`, and `avgSleepingHR` from Intervals.icu's
+daily wellness endpoint. Run `python sync_pipeline.py --days 90` after applying the migration
+to backfill wellness history and calories for recent activities. Feel, average heart rate, and
+calories are populated for activities synced after the migration. The one-shot runner calls the local API with the current week's Monday
+as `week_start` at the Sunday cutoff.
 
 Proactive notification architecture, OAuth setup, deployment, event lifecycle, feedback behavior, and troubleshooting are documented in [docs/PROACTIVE_NOTIFICATIONS.md](docs/PROACTIVE_NOTIFICATIONS.md). Apply `sql/proactive_notifications.sql` before using notifications on a new database.
 
