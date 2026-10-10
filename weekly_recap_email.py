@@ -50,21 +50,36 @@ def _activity_group(activity_type: str) -> str:
 def _activity_icon(activity_type: str) -> str:
     group = _activity_group(activity_type)
     icons = {
-        "Running": "&#x1F3C3;&#xfe0f;",
-        "Cycling": "&#x1F6B4;&#xfe0f;",
-        "Weight Training": "&#x1F3CB;&#xfe0f;",
-        "Yoga": "&#x1F9D8;&#xfe0f;",
-        "Swimming": "&#x1F3CA;&#xfe0f;",
+        "Running": ("run", "#55c9f0"),
+        "Cycling": ("bike", "#f2c45d"),
+        "Weight Training": ("dumbbell", "#f2c45d"),
+        "Yoga": ("lotus", "#c49bff"),
+        "Swimming": ("waves", "#55c9f0"),
     }
-    return icons.get(group, "&#x25cf;&#xfe0f;")
+    name, color = icons.get(group, ("activity", "#63d8ad"))
+    return _line_icon(name, color, 18)
 
 
-_RUN_OR_CYCLE_TYPES = ("run", "running", "cicl", "cycl", "ride", "bike", "bici", "mtb")
-
-
-def _is_run_or_cycle(activity_type: str) -> bool:
-    normalized_type = activity_type.casefold()
-    return any(keyword in normalized_type for keyword in _RUN_OR_CYCLE_TYPES)
+def _line_icon(name: str, color: str, size: int = 18) -> str:
+    glyphs = {
+        "activity": "&#x223F;",
+        "bike": "&#x2699;",
+        "chart": "&#x2197;",
+        "clock": "&#x25F7;",
+        "dumbbell": "&#x2261;",
+        "heart": "&#x2661;",
+        "lotus": "&#x273F;",
+        "mountain": "&#x25B3;",
+        "moon": "&#x263E;",
+        "run": "&#x2197;",
+        "sparkles": "&#x2727;",
+        "waves": "&#x224B;",
+    }
+    glyph = glyphs.get(name, glyphs["activity"])
+    return (
+        f"<span data-icon='{name}' style='color:{color};font-family:Arial,Helvetica,sans-serif;"
+        f"font-size:{size}px;line-height:1' aria-hidden='true'>{glyph}</span>"
+    )
 
 
 def _number(value) -> float | None:
@@ -83,6 +98,10 @@ def _display_number(value, decimals: int = 0) -> str:
     return f"{number:,.{decimals}f}"
 
 
+def _localized_number(value, decimals: int = 0) -> str:
+    return _display_number(value, decimals).translate(str.maketrans(".,", ",."))
+
+
 def _format_duration(seconds) -> str:
     duration = _number(seconds)
     if duration is None:
@@ -99,58 +118,6 @@ def _compact_duration(seconds) -> str:
     minutes = max(0, int(duration // 60))
     hours, remainder = divmod(minutes, 60)
     return f"{hours}h{remainder:02d}m" if hours else f"{remainder}m"
-
-
-def _metric_text(value) -> str:
-    number = _number(value)
-    if number is None:
-        return "—"
-    return _display_number(number) if number.is_integer() else _display_number(number, 1)
-
-
-def _daily_metric_chart(
-    title: str,
-    field: str,
-    daily_wellness: dict[str, dict],
-    week_start: date,
-    color: str,
-    formatter,
-    scale_max: float | None = None,
-) -> str:
-    days = [week_start + timedelta(days=offset) for offset in range(7)]
-    values = [_number((daily_wellness.get(day.isoformat()) or {}).get(field)) for day in days]
-    available = [value for value in values if value is not None and value > 0]
-    maximum = scale_max or max(available, default=1)
-    rows = []
-    for day, value in zip(days, values):
-        label = _WEEKDAYS[day.weekday()][:3]
-        if value is None:
-            bar_width = 0
-            value_text = "—"
-        else:
-            bar_width = min(100, round(max(0, value) / maximum * 100))
-            if value > 0:
-                bar_width = max(4, bar_width)
-            value_text = formatter(value)
-        remainder = 100 - bar_width
-        rows.append(
-            "<tr>"
-            f"<td width='34' style='padding:3px 6px;color:#aab4c2;font-size:12px'>{escape(label)}</td>"
-            "<td style='padding:3px 4px'>"
-            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='border-collapse:collapse'>"
-            "<tr>"
-            f"<td width='{bar_width}%' height='9' bgcolor='{color}' style='height:9px;font-size:1px;line-height:1px'>&nbsp;</td>"
-            f"<td width='{remainder}%' height='9' bgcolor='#394251' style='height:9px;font-size:1px;line-height:1px'>&nbsp;</td>"
-            "</tr></table></td>"
-            f"<td width='78' align='right' style='padding:3px 6px;color:#e3e8ef;font-size:12px'>{escape(value_text)}</td>"
-            "</tr>"
-        )
-    return (
-        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
-        "style='border-collapse:collapse;margin:8px 0 16px'>"
-        f"<tr><td colspan='3' style='padding:5px 6px;font-weight:bold;color:#e3e8ef'>{escape(title)}</td></tr>"
-        f"{''.join(rows)}</table>"
-    )
 
 
 def _activity_day(activity: dict) -> str:
@@ -217,7 +184,6 @@ def build_weekly_recap_email(
     for day_activities in by_day.values():
         day_activities.sort(key=_activity_time)
 
-    html_days = []
     text_days = []
     for offset in range(7):
         day = week_start + timedelta(days=offset)
@@ -230,33 +196,6 @@ def build_weekly_recap_email(
         sleep_text = _format_duration(wellness.get("sleep_seconds"))
         sleep_score_text = _display_number(wellness.get("sleep_score"))
         avg_sleep_hr_text = _display_number(wellness.get("avg_sleep_hr"))
-        wellness_values = (
-            ("sleep_seconds", "&#x1F319;&#xfe0f;", "Sueño", _compact_duration(wellness.get("sleep_seconds"))),
-            ("sleep_score", "&#x2728;&#xfe0f;", "Puntuación del sueño", sleep_score_text),
-            ("resting_hr", "&#x2764;&#xfe0f;", "FC en reposo", resting_hr_text),
-            ("avg_sleep_hr", "&#x1F493;&#xfe0f;", "FC durante el sueño", avg_sleep_hr_text),
-            ("weight_kg", "&#x2696;&#xfe0f;", "Peso", f"{weight_text} kg"),
-            ("steps", "&#x1F463;&#xfe0f;", "Steps", steps_text),
-        )
-        wellness_cells = []
-        for field, icon, label, value in wellness_values:
-            if wellness.get(field) is None:
-                metric = "&nbsp;"
-            else:
-                metric = (
-                    f"<span title='{label}' aria-label='{label}: {escape(value)}' "
-                    f"style='white-space:nowrap'><span>{icon}</span> "
-                    f"<b style='color:#c6cfda'>{escape(value)}</b></span>"
-                )
-            wellness_cells.append(
-                f"<td width='16.66%' valign='top' style='padding:2px 1px;color:#c6cfda;font-size:9px;white-space:nowrap'>{metric}</td>"
-            )
-        wellness_metrics_html = (
-            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
-            "style='width:100%;table-layout:fixed;border-collapse:collapse'><tr>"
-            f"{''.join(wellness_cells)}</tr></table>"
-        )
-        activities_html = []
         activities_text = []
         for activity in by_day.get(day_key, []):
             name = str(activity.get("activity_name") or "Entrenamiento")
@@ -267,48 +206,14 @@ def build_weekly_recap_email(
             load_text = _display_number(activity.get("icu_load"))
             heart_rate = activity.get("average_hr")
             heart_rate_text = _display_number(heart_rate) if heart_rate is not None else "—"
-            duration_text = _compact_duration(activity.get("moving_time_seconds"))
-            distance_text = ""
-            if _is_run_or_cycle(str(activity.get("activity_type") or "")):
-                distance = _number(activity.get("distance_meters"))
-                if distance is not None and distance > 0:
-                    distance_text = f"{_display_number(distance / 1000, 1)} km"
-            activity_metrics = (
-                (_activity_time(activity), "Hora", "width='9%'"),
-                (escape(display_name), "Entrenamiento", "width='31%'"),
-                (escape(duration_text), "Tiempo", "width='15%'"),
-                (f"&#9889;&#xfe0f; {load_text}", "Load", "width='10%'"),
-                (f"&#x2764;&#xfe0f; {heart_rate_text}", "FC", "width='7%'"),
-                (distance_text, "Distancia", "width='8%'"),
-                (f"&#x1F642;&#xfe0f; {feel_text}", "Sensación", "width='10%'"),
-                (f"RPE {rpe_text}", "RPE", "width='10%'"),
-            )
-            activity_cells = "".join(
-                f"<td {width} title='{label}' style='padding:2px 1px;color:#cbd3dd;font-size:9px;line-height:1.2;vertical-align:top;overflow-wrap:anywhere'>{value or '&nbsp;'}</td>"
-                for value, label, width in activity_metrics
-            )
-            activities_html.append(
-                f"<tr>{activity_cells}</tr>"
-            )
             activities_text.append(
                 f"{_activity_time(activity)} · {display_name} · sensación {feel_text} · "
                 f"RPE {rpe_text} · carga {load_text} · FC media {heart_rate_text}"
             )
 
-        if not activities_html:
-            activities_html.append(
-                "<tr><td colspan='8' style='padding:5px 0;color:#8995a5;font-size:12px'>Sin entrenamientos sincronizados</td></tr>"
-            )
+        if not activities_text:
             activities_text.append("Sin entrenamientos sincronizados")
 
-        html_days.append(
-            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='width:100%;table-layout:fixed;border-collapse:collapse;margin:8px 0 2px'>"
-            f"<tr><td width='18%' valign='top' style='padding:0 4px 2px 0;white-space:nowrap'><h3 style='margin:0;color:#f0f3f7;font-size:12px'>{escape(heading)}</h3></td>"
-            f"<td width='82%' valign='top' style='padding:0'>{wellness_metrics_html}</td></tr></table>"
-            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
-            "style='width:100%;table-layout:fixed;border-collapse:collapse;font-size:10px'>"
-            f"<tbody>{''.join(activities_html)}</tbody></table>"
-        )
         text_days.append(
             f"{heading}\n" + "\n".join(activities_text)
             + f"\nSalud: pasos {steps_text} · peso {weight_text} kg · FC en reposo {resting_hr_text} bpm · sueño {sleep_text} · puntuación {sleep_score_text} · FC media durante el sueño {avg_sleep_hr_text} bpm"
@@ -338,20 +243,93 @@ def build_weekly_recap_email(
     summary_heading = " ".join(
         str(narrative.get("summary_heading") or "Tu semana de entrenamiento").split()
     )
-    trends = str(narrative.get("trends") or "No hay datos suficientes para comparar tendencias.")
-    suggestions = str(narrative.get("next_week_suggestions") or "Mantén un seguimiento regular de la carga y la recuperación.")
+
+    def narrative_items(field: str, limit: int) -> list[dict[str, str]]:
+        raw_items = narrative.get(field)
+        if not isinstance(raw_items, list):
+            return []
+        items = []
+        for item in raw_items[:limit]:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title") or "").strip()
+            detail = str(item.get("detail") or "").strip()
+            if not title or not detail:
+                continue
+            normalized = {"title": title, "detail": detail}
+            if field == "recommendations":
+                normalized["category"] = str(item.get("category") or "ACCIÓN").strip()
+            items.append(normalized)
+        return items
+
+    key_findings = narrative_items("key_findings", 3)
+    if not key_findings:
+        key_findings = [{
+            "title": "Sin hallazgos destacados",
+            "detail": "No hay datos suficientes para señalar un cambio relevante esta semana.",
+        }]
+    recommendations = narrative_items("recommendations", 4)
+    if not recommendations:
+        recommendations = [{
+            "category": "GENERAL",
+            "title": "Mantener una progresión prudente",
+            "detail": "No hay datos suficientes para proponer acciones más específicas.",
+        }]
+
+    def recommendation_icon(category: str, size: int) -> str:
+        normalized = category.casefold()
+        if any(word in normalized for word in ("sueño", "recuper", "descanso")):
+            name = "moon"
+        if any(word in normalized for word in ("entren", "carga", "sesion")):
+            name = "run"
+        elif any(word in normalized for word in ("vigilar", "pulso", "salud")):
+            name = "heart"
+        elif not any(word in normalized for word in ("sueño", "recuper", "descanso")):
+            name = "sparkles"
+        return _line_icon(name, "#55d9ad", size)
+
+    finding_blocks = "".join(
+        "<div style='padding:7px 0;border-bottom:1px solid #293542'>"
+        f"<div style='color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(item['title'])}</div>"
+        f"<div style='padding-top:3px;color:#c3d0d4;font-size:9px;line-height:1.45'>{escape(item['detail'])}</div>"
+        "</div>"
+        for item in key_findings
+    )
+    recommendation_blocks = []
+    for index, item in enumerate(recommendations):
+        if index == 0:
+            recommendation_blocks.append(
+                "<div style='margin:4px 0 8px;padding:11px;background:#1b3331;border-radius:8px'>"
+                f"<div style='color:#55d9ad;font-size:9px;line-height:1.2'>{recommendation_icon(item['category'], 16)} "
+                f"<span style='font-size:9px;font-weight:bold;vertical-align:2px'>{escape(item['category'].upper())}</span></div>"
+                f"<div style='padding-top:5px;color:#f3f7f5;font-size:12px;font-weight:bold'>{escape(item['title'])}</div>"
+                f"<div style='padding-top:4px;color:#d5e0e3;font-size:10px;line-height:1.45'>{escape(item['detail'])}</div>"
+                "</div>"
+            )
+        else:
+            recommendation_blocks.append(
+                "<div style='padding:7px 0'>"
+                f"<div style='color:#a6b2c3;font-size:9px;line-height:1.2'>{recommendation_icon(item['category'], 14)} "
+                f"<span style='font-size:9px;font-weight:bold;vertical-align:2px'>{escape(item['category'].upper())}</span></div>"
+                f"<div style='padding-top:3px;color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(item['title'])}</div>"
+                f"<div style='padding-top:3px;color:#c3d0d4;font-size:9px;line-height:1.45'>{escape(item['detail'])}</div>"
+                "</div>"
+            )
+    recommendation_blocks_html = "".join(recommendation_blocks)
+    findings_text = "\n".join(
+        f"- {item['title']}: {item['detail']}" for item in key_findings
+    )
+    recommendations_text = "\n".join(
+        f"{'★' if index == 0 else '-'} {item['category'].upper()} · {item['title']}: {item['detail']}"
+        for index, item in enumerate(recommendations)
+    )
     total_load = _display_number(summary.get("training_load"))
     total_hours = _compact_duration(summary.get("duration_seconds"))
     total_distance = summary.get("distance_meters")
     distance_stat = f"{_display_number(total_distance / 1000, 1)} km" if total_distance else "—"
     total_elevation = summary.get("elevation_meters")
-    elevation_stat = f"{_metric_text(total_elevation)}m" if total_elevation else "—"
-    calories_value = _number(summary.get("calories"))
-    total_calories = f"{calories_value:.0f}" if calories_value is not None else "—"
     trend_by_week = {str(row.get("week_start")): row for row in (weekly_trend or [])}
     current_trend = trend_by_week.get(week_start.isoformat(), {})
-    previous_weeks = sorted(day for day in trend_by_week if day < week_start.isoformat())
-    previous_trend = trend_by_week.get(previous_weeks[-1], {}) if previous_weeks else {}
     latest_activity = sorted(activities, key=_activity_day, reverse=True)
 
     def latest_metric(field: str):
@@ -360,89 +338,163 @@ def build_weekly_recap_email(
     fitness = current_trend.get("last_ctl")
     if fitness is None:
         fitness = latest_metric("fitness_ctl")
-    fatigue = current_trend.get("last_atl")
-    if fatigue is None:
-        fatigue = latest_metric("fatigue_atl")
     form = current_trend.get("last_tsb")
     if form is None:
         form = latest_metric("form_tsb")
-    current_fitness = _number(fitness)
-    previous_fitness = _number(previous_trend.get("last_ctl"))
-    ramp = current_fitness - previous_fitness if current_fitness is not None and previous_fitness is not None else None
 
     activity_columns = summary["by_type"]
 
-    summary_rows = (
-        (("Total", total_hours, "#f2f4f7", ""), ("Distance", distance_stat, "#f2f4f7", ""), ("Fitness", _metric_text(fitness), "#4b9cff", "")),
-        (("Load", total_load, "#f2f4f7", ""), ("Elevation", elevation_stat, "#f2f4f7", ""), ("Fatigue", _metric_text(fatigue), "#f06a9b", "")),
-        (("Ramp", _metric_text(ramp), "#f2f4f7", ""), ("kcal", total_calories, "#f2f4f7", ""), ("Form", _metric_text(form), "#54c878", "")),
+    months = ("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+    date_range = (
+        f"{week_start.day:02d} {months[week_start.month - 1]} – "
+        f"{week_end.day:02d} {months[week_end.month - 1]} · Semana {week_start.isocalendar().week}"
     )
-    stats_rows_html = []
-    for row_index, metrics in enumerate(summary_rows):
-        cells = []
-        for label, value, value_color, icon in metrics:
-            label_html = f"<span style='display:block;color:#98a2b3;font-size:11px'>{escape(label)}</span>" if label else ""
-            value_html = f"<b style='display:block;color:{value_color};font-size:16px;line-height:1.15'>{icon}{escape(value)}</b>" if value else ""
-            cells.append(
-                f"<td valign='top' style='padding:7px 8px;font-size:12px;white-space:nowrap'>{label_html}{value_html}</td>"
-            )
-        for item in activity_columns:
-            activity_type = escape(str(item["activity_type"]))
-            if row_index == 0:
-                icon = _activity_icon(str(item["activity_type"]))
-                values = (
-                    f"<span style='font-size:21px;line-height:1'>{icon}</span> "
-                    f"<b style='font-size:16px'>{item['sessions']}×</b> "
-                    f"<span style='display:block;color:#98a2b3;font-size:9px'>Load</span>"
-                    f"<b style='font-size:12px'>&#9889;&#xfe0f; {_display_number(item['training_load'])}</b>"
-                )
-            elif row_index == 1:
-                values = (
-                    "<span style='display:block;color:#98a2b3;font-size:9px'>Time</span>"
-                    f"<b style='font-size:12px'>{_compact_duration(item['duration_seconds'])}</b>"
-                )
-            else:
-                distance = item["distance_meters"]
-                values = (
-                    "<span style='display:block;color:#98a2b3;font-size:9px'>Distance</span>"
-                    f"<b style='font-size:12px'>{_display_number(distance / 1000, 1)} km</b>"
-                    if distance else "—"
-                )
-            cells.append(
-                f"<td title='{activity_type}' aria-label='{activity_type}' style='padding:2px 7px;font-size:12px;white-space:nowrap;color:#cbd3dd'>"
-                f"{values}</td>"
-            )
-        stats_rows_html.append("<tr>" + "".join(cells) + "</tr>")
-    wellness_rows = daily_wellness or {}
-    daily_charts = "".join((
-        _daily_metric_chart("Sueño", "sleep_seconds", wellness_rows, week_start, "#397c8a", _format_duration),
-        _daily_metric_chart("Puntuación del sueño", "sleep_score", wellness_rows, week_start, "#5b8f76", lambda value: _display_number(value), 100),
-        _daily_metric_chart("Frecuencia cardiaca en reposo", "resting_hr", wellness_rows, week_start, "#bd6b54", lambda value: f"{_display_number(value)} bpm"),
-        _daily_metric_chart("FC media durante el sueño", "avg_sleep_hr", wellness_rows, week_start, "#81729a", lambda value: f"{_display_number(value)} bpm"),
-        _daily_metric_chart("Pasos", "steps", wellness_rows, week_start, "#c18a3c", _display_number),
-    ))
+    total_distance_text = (
+        f"{_localized_number(total_distance / 1000, 1)} km"
+        if total_distance else "—"
+    )
+    elevation_text = f"{_localized_number(total_elevation)} m" if total_elevation else "—"
+
+    def metric_cell(value: str, caption: str, color: str, icon: str) -> str:
+        return (
+            "<td width='50%' valign='top' style='padding:4px'>"
+            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
+            "bgcolor='#171f2b' style='border-collapse:separate;border-radius:8px'>"
+            f"<tr><td style='padding:11px 12px 10px'>"
+            f"<div style='color:{color};font-size:16px;line-height:1'>{_line_icon(icon, color, 18)}</div>"
+            f"<div style='padding-top:4px;color:#f2f5f8;font-size:18px;font-weight:bold;line-height:1.2'>{escape(value)}</div>"
+            f"<div style='padding-top:3px;color:#8e9caf;font-size:9px'>{escape(caption)}</div>"
+            "</td></tr></table></td>"
+        )
+
+    metric_rows = (
+        "<tr>"
+        + metric_cell(_format_duration(summary.get("duration_seconds")), "Tiempo total", "#55c9f0", "clock")
+        + metric_cell(total_distance_text, "Distancia · todas las actividades", "#55c9f0", "run")
+        + "</tr><tr>"
+        + metric_cell(total_load, "Carga semanal", "#f4c65e", "chart")
+        + metric_cell(elevation_text, "Desnivel · todas las actividades", "#c49bff", "mountain")
+        + "</tr>"
+    )
+
+    group_colors = {
+        "Running": "#54c9f1",
+        "Cycling": "#f2c45d",
+        "Weight Training": "#f2c45d",
+        "Yoga": "#c29cff",
+    }
+    group_labels = {"Weight Training": "Fuerza", "Cycling": "Ciclismo"}
+    max_group_load = max((_number(item.get("training_load")) or 0 for item in activity_columns), default=0)
+    activity_rows = []
+    for item in activity_columns:
+        group = str(item["activity_type"])
+        group_label = group_labels.get(group, group)
+        group_color = group_colors.get(group, "#63d8ad")
+        group_load = _number(item.get("training_load")) or 0
+        bar_width = min(100, round(group_load / max_group_load * 100)) if max_group_load else 0
+        detail = []
+        if item.get("distance_meters"):
+            detail.append(f"{_localized_number(item['distance_meters'] / 1000, 1)} km")
+        if item.get("duration_seconds"):
+            detail.append(_format_duration(item["duration_seconds"]))
+        if item.get("training_load") is not None:
+            detail.append(f"Carga {_localized_number(item['training_load'])}")
+        icon = _activity_icon(group)
+        activity_rows.append(
+            "<tr><td style='padding:8px 0 3px'>"
+            "<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+            f"<td width='38' valign='top' style='padding-right:9px'><table role='presentation' cellspacing='0' cellpadding='0' bgcolor='#243344' style='border-radius:6px'><tr><td width='32' height='32' align='center' style='font-size:16px'>{icon}</td></tr></table></td>"
+            f"<td valign='top'><span style='color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(group_label)}</span>"
+            f"<br><span style='color:#a0adbf;font-size:9px'>{escape(' · '.join(detail) or 'Sin métricas disponibles')}</span>"
+            f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:5px'><tr>"
+            f"<td width='{bar_width}%' height='4' bgcolor='{group_color}' style='height:4px;font-size:1px;line-height:1px'>&nbsp;</td>"
+            f"<td width='{100 - bar_width}%' height='4' bgcolor='#303b4b' style='height:4px;font-size:1px;line-height:1px'>&nbsp;</td>"
+            "</tr></table></td>"
+            f"<td width='70' valign='top' align='right' style='padding-left:6px;color:#e5eaf0;font-size:10px'>{item['sessions']} {'sesión' if item['sessions'] == 1 else 'sesiones'}</td>"
+            "</tr></table></td></tr>"
+        )
+    if not activity_rows:
+        activity_rows.append(
+            "<tr><td style='padding:12px 0;color:#a0adbf;font-size:11px'>Sin actividad sincronizada</td></tr>"
+        )
+
+    latest_sleep_day = next(
+        (week_start + timedelta(days=offset) for offset in reversed(range(7))
+         if any((daily_wellness or {}).get((week_start + timedelta(days=offset)).isoformat(), {}).get(field) is not None
+                for field in ("sleep_seconds", "sleep_score"))),
+        None,
+    )
+    latest_hr_day = next(
+        (week_start + timedelta(days=offset) for offset in reversed(range(7))
+         if (daily_wellness or {}).get((week_start + timedelta(days=offset)).isoformat(), {}).get("resting_hr") is not None),
+        None,
+    )
+    latest_sleep_record = (daily_wellness or {}).get(latest_sleep_day.isoformat(), {}) if latest_sleep_day else {}
+    latest_hr_record = (daily_wellness or {}).get(latest_hr_day.isoformat(), {}) if latest_hr_day else {}
+    latest_day_label = _WEEKDAYS[latest_sleep_day.weekday()] if latest_sleep_day else "Sin datos"
+    latest_sleep = _format_duration(latest_sleep_record.get("sleep_seconds"))
+    latest_sleep_score = _localized_number(latest_sleep_record.get("sleep_score"))
+    latest_resting_hr = _localized_number(latest_hr_record.get("resting_hr"))
+    form_number = _number(form)
+    form_text = _localized_number(form_number, 1)
+    if form_number is not None and form_number > 0:
+        form_text = f"+{form_text}"
+
+    sleep_rows = []
+    short_days = ("Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom")
+    for offset in range(7):
+        day = week_start + timedelta(days=offset)
+        score = _number((daily_wellness or {}).get(day.isoformat(), {}).get("sleep_score"))
+        score_text = _localized_number(score) if score is not None else "—"
+        score_color = "#fb8588" if score is not None and score < 50 else "#f4c65e" if score is not None and score < 70 else "#55d9ad"
+        bar_width = min(100, max(0, round(score))) if score is not None else 0
+        sleep_rows.append(
+            "<tr>"
+            f"<td width='34' style='padding:4px 6px;color:#a6b2c3;font-size:10px'>{short_days[offset]}</td>"
+            "<td style='padding:4px 4px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+            f"<td width='{bar_width}%' height='5' bgcolor='{score_color}' style='height:5px;font-size:1px;line-height:1px'>&nbsp;</td>"
+            f"<td width='{100 - bar_width}%' height='5' bgcolor='#303b4b' style='height:5px;font-size:1px;line-height:1px'>&nbsp;</td>"
+            "</tr></table></td>"
+            f"<td width='30' align='right' style='padding:4px 6px;color:#dfe6ee;font-size:10px'>{escape(score_text)}</td>"
+            "</tr>"
+        )
 
     html_content = (
-        "<!doctype html><html><body bgcolor='#11151d' style='margin:0;background:#11151d;color:#e9edf3;font-family:Arial,sans-serif'>"
-        "<div style='width:100%;margin:0;padding:0;background:#11151d'>"
-        "<div bgcolor='#11151d' style='background:#11151d;color:#e9edf3'>"
-        "<div style='padding:8px'>"
-        f"<p style='margin:0 0 4px;color:#8e9bab;font-size:10px;text-transform:uppercase'>{week_start.strftime('%d %b')} - {week_end.strftime('%d %b')}</p>"
-        f"<h1 style='margin:0 0 8px;color:#f0f3f7;font-size:20px'>Semana {week_start.isocalendar().week}</h1>"
-        f"<h2 style='font-size:16px;color:#e9edf3;margin:16px 0 6px'>{escape(summary_heading)}</h2>"
-        f"<p style='color:#c3ccd7;font-size:13px;line-height:1.45;margin:0'>{escape(summary_line)}</p>"
-        "</div>"
-        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#11151d' style='width:100%;border-collapse:collapse;background:#11151d;margin:0 0 12px'>"
-        f"{''.join(stats_rows_html)}</table>"
-        "<div style='padding:0 8px 8px;color:#e9edf3'>"
-        f"{''.join(html_days)}"
-        "<h2 style='font-size:15px;color:#f0f3f7;margin:10px 0 4px'>Tendencias</h2>"
-        f"<p style='color:#c3ccd7;font-size:12px;line-height:1.35;margin:0 0 6px'>{escape(trends)}</p>"
-        "<h2 style='font-size:15px;color:#f0f3f7;margin:10px 0 4px'>Sugerencias para la próxima semana</h2>"
-        f"<p style='color:#c3ccd7;font-size:12px;line-height:1.35;margin:0 0 6px'>{escape(suggestions)}</p>"
-        "<h2 style='font-size:15px;color:#f0f3f7;margin:10px 0 4px'>Gráficos diarios</h2>"
-        f"{daily_charts}"
-        "</div></div></div></body></html>"
+        "<!doctype html><html lang='es'><head><meta charset='utf-8'></head>"
+        "<body bgcolor='#07090c' style='margin:0;padding:0;background:#07090c;color:#edf2f7;font-family:Arial,Helvetica,sans-serif'>"
+        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#07090c'><tr><td align='center' style='padding:16px 10px'>"
+        "<table role='presentation' width='560' cellspacing='0' cellpadding='0' bgcolor='#0d1219' style='width:100%;max-width:560px;border-collapse:separate;border-radius:12px'>"
+        "<tr><td style='padding:18px 14px 8px'>"
+        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
+        "<td style='color:#9aa8ba;font-size:9px;letter-spacing:1px'>TRAINING COACH · INFORME SEMANAL</td>"
+        f"<td align='right' style='color:#55d9ad;font-size:14px'>{_line_icon('activity', '#55d9ad', 16)}</td></tr></table>"
+        "<div style='padding-top:6px;color:#f1f4f8;font-size:20px;font-weight:bold'>Resumen de entrenamiento</div>"
+        f"<div style='padding-top:3px;color:#9eacbf;font-size:10px'>{date_range}</div>"
+        "</td></tr>"
+        "<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#142b2b' style='border-radius:7px'><tr><td style='padding:10px 11px'>"
+        f"<div style='color:#55d9ad;font-size:9px;font-weight:bold;text-transform:uppercase'>{escape(summary_heading)}</div>"
+        f"<div style='padding-top:4px;color:#d5e0e3;font-size:10px;line-height:1.4'>{escape(summary_line)}</div>"
+        "</td></tr></table></td></tr>"
+        f"<tr><td style='padding:0 10px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{metric_rows}</table></td></tr>"
+        "<tr><td style='padding:5px 14px 0;color:#f0f3f7;font-size:12px;font-weight:bold'>Actividad semanal</td></tr>"
+        f"<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:0 9px;border-radius:8px'>{''.join(activity_rows)}</table></td></tr>"
+        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Recuperación</td></tr>"
+        "<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'><tr>"
+        f"<td width='50%' valign='top' style='padding:11px 9px'><div style='color:#a6b2c3;font-size:9px'>Sueño · {escape(latest_day_label)}</div><div style='padding-top:4px;color:#fb8588;font-size:15px;font-weight:bold'>{escape(latest_sleep)}</div></td>"
+        f"<td width='50%' align='right' valign='top' style='padding:11px 9px'><div style='color:#a6b2c3;font-size:9px'>Puntuación</div><div style='padding-top:4px;color:#fb8588;font-size:15px;font-weight:bold'>{escape(latest_sleep_score)}/100</div></td>"
+        "</tr><tr>"
+        f"<td valign='top' style='padding:5px 9px 9px'><div style='color:#a6b2c3;font-size:9px'>Pulso en reposo</div><div style='padding-top:4px;color:#ffbd65;font-size:14px;font-weight:bold'>{escape(latest_resting_hr)} bpm</div></td>"
+        f"<td align='right' valign='top' style='padding:5px 9px 9px'><div style='color:#a6b2c3;font-size:9px'>Forma (TSB)</div><div style='padding-top:4px;color:#55d9ad;font-size:14px;font-weight:bold'>{escape(form_text)}</div></td>"
+        "</tr><tr><td colspan='2' style='padding:0 9px 10px;color:#a6b2c3;font-size:9px;line-height:1.4'>El sueño y el pulso en reposo ayudan a contextualizar la carga semanal.</td></tr></table></td></tr>"
+        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Evolución de la semana</td></tr>"
+        f"<tr><td style='padding:6px 9px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'>{''.join(sleep_rows)}"
+        "<tr><td colspan='3' style='padding:6px;color:#9eacbf;font-size:9px'>Puntuación del sueño · escala de 0 a 100</td></tr></table></td></tr>"
+        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Lo más importante</td></tr>"
+        f"<tr><td style='padding:0 14px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:2px 11px;border-radius:8px'><tr><td>{finding_blocks}</td></tr></table></td></tr>"
+        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Recomendaciones para la próxima semana</td></tr>"
+        f"<tr><td style='padding:0 14px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr><td>{recommendation_blocks_html}</td></tr></table></td></tr>"
+        f"<tr><td style='padding:0 14px 14px;color:#77869a;font-size:8px'>TRAINING COACH · Semana {week_start.isocalendar().week} · Entrenamiento y recuperación</td></tr>"
+        "</table></td></tr></table></body></html>"
     )
 
     text_content = (
@@ -451,7 +503,7 @@ def build_weekly_recap_email(
         f"{summary['sessions']} sesiones · {total_hours} · carga total {total_load} · distancia {distance_stat}\n\n"
         f"ENTRENAMIENTOS POR TIPO\n" + "\n".join(type_rows_text) + "\n\n"
         f"DIARIO DE ENTRENAMIENTOS\n" + "\n\n".join(text_days) + "\n\n"
-        f"TENDENCIAS\n{trends}\n\n"
-        f"SUGERENCIAS PARA LA PRÓXIMA SEMANA\n{suggestions}"
+        f"LO MÁS IMPORTANTE\n{findings_text}\n\n"
+        f"RECOMENDACIONES PARA LA PRÓXIMA SEMANA\n{recommendations_text}"
     )
     return html_content, text_content

@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, ToolMessage
 from openai import RateLimitError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from coach_tools import ALL_TOOLS, memory as db_memory
 from plan_tools import PLAN_TOOLS
@@ -135,15 +135,26 @@ def call_llm_with_retry(messages: list, max_retries: int = 4, model=None) -> AIM
             wait = min(wait * 2, 60)
 
 
+class WeeklyRecapFinding(BaseModel):
+    title: str
+    detail: str
+
+
+class WeeklyRecapRecommendation(BaseModel):
+    category: str
+    title: str
+    detail: str
+
+
 class WeeklyRecapNarrative(BaseModel):
     summary_heading: str
     summary: str
-    trends: str
-    next_week_suggestions: str
+    key_findings: list[WeeklyRecapFinding] = Field(min_length=1, max_length=3)
+    recommendations: list[WeeklyRecapRecommendation] = Field(min_length=2, max_length=4)
 
 
-def run_weekly_recap_agent(week_start: str, week_end: str, recap_data: dict) -> dict[str, str]:
-    """Generate the opening summary, comparisons, and suggestions from recap data."""
+def run_weekly_recap_agent(week_start: str, week_end: str, recap_data: dict) -> dict:
+    """Generate the opening summary, key findings, and prioritized actions."""
     recap_llm = ChatOpenAI(
         model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
         temperature=0.3,
@@ -151,14 +162,20 @@ def run_weekly_recap_agent(week_start: str, week_end: str, recap_data: dict) -> 
     ).with_structured_output(WeeklyRecapNarrative)
     messages = [
         SystemMessage(content=(
-            "Escribe en español y devuelve cuatro textos breves para un email de recapitulación semanal. "
+            "Escribe en español para un email de recapitulación semanal. "
             "summary_heading es un título corto y específico, de 2 a 6 palabras, generado según el hallazgo principal. "
             "No uses un título genérico ni 'Tu semana, en perspectiva'; no incluyas fechas. "
             "summary abre el email con la observación principal sobre la semana y su carga total. "
             "Empieza directamente por el contenido, sin título, fechas ni frases como 'Resumen de la semana'. "
-            "trends compara esta semana con las semanas anteriores disponibles, sin inventar datos. "
-            "next_week_suggestions contiene sugerencias concretas y prudentes basadas en esa tendencia; "
-            "no modifiques ni afirmes haber modificado el plan. Si faltan datos, dilo con claridad. "
+            "key_findings contiene de 1 a 3 hallazgos breves y priorizados sobre lo más relevante de esta semana. "
+            "Cada hallazgo incluye un título fácil de detectar de un vistazo y una explicación corta. "
+            "Devuelve menos hallazgos si no hay otros suficientemente relevantes; no rellenes por alcanzar el máximo. "
+            "recommendations contiene de 2 a 4 acciones concretas para la próxima semana, ordenadas por importancia. "
+            "La primera recomendación es siempre la prioridad principal; las siguientes son acciones secundarias. "
+            "Cada recomendación incluye una categoría breve (por ejemplo, ENTRENAMIENTO, SUEÑO o VIGILAR), "
+            "un título accionable y una explicación corta. Basa hallazgos y acciones en los datos recibidos, "
+            "sin inventar tendencias, diagnósticos, umbrales ni hechos. Si faltan datos, sé prudente y explícitalo. "
+            "No modifiques ni afirmes haber modificado el plan. "
             "No repitas la tabla de entrenamientos: el email la añade por separado."
         )),
         HumanMessage(content=(
