@@ -6,11 +6,13 @@ Run:
 """
 
 import asyncio
+import base64
 import os
 import html
 import re
 from datetime import date, datetime, timedelta
 from contextlib import asynccontextmanager
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 import logging
@@ -27,7 +29,7 @@ from activity_notifications import ActivityNotificationWorker
 from agent_memory import SupabaseAgentMemory
 from injury_agent import close_db_memory
 from sync_pipeline import build_pipeline_from_env
-from weekly_recap_email import build_weekly_recap_email, summarize_activities
+from weekly_recap_email import INLINE_ICON_CONTENT_IDS, build_weekly_recap_email, summarize_activities
 
 load_dotenv(override=True)
 logger = logging.getLogger(__name__)
@@ -210,6 +212,15 @@ def _send_weekly_recap_email(
         )
 
     subject = f"Resumen de entrenamiento: Semana {week_start.isocalendar().week}"
+    icon_dir = Path(__file__).resolve().parent / "assets"
+    icon_attachments = [
+        {
+            "filename": f"{content_id}.png",
+            "content": base64.b64encode((icon_dir / f"{content_id}.png").read_bytes()).decode("ascii"),
+            "content_id": content_id,
+        }
+        for content_id in INLINE_ICON_CONTENT_IDS
+    ]
     response = httpx.post(
         "https://api.resend.com/emails",
         headers={
@@ -222,6 +233,7 @@ def _send_weekly_recap_email(
             "subject": subject,
             "text": text_content,
             "html": html_content,
+            "attachments": icon_attachments,
         },
         timeout=20,
     )

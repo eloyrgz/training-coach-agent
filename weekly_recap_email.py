@@ -22,6 +22,22 @@ _SUMMARY_HEADING_RE = re.compile(
     re.IGNORECASE,
 )
 
+INLINE_ICON_CONTENT_IDS = (
+    "mdi-activity-55d9ad",
+    "mdi-bike-f2c45d",
+    "mdi-chart-f4c65e",
+    "mdi-clock-55c9f0",
+    "mdi-dumbbell-f2c45d",
+    "mdi-heart-55d9ad",
+    "mdi-lotus-c49bff",
+    "mdi-mountain-c49bff",
+    "mdi-moon-55d9ad",
+    "mdi-run-55d9ad",
+    "mdi-sport-shoe-55c9f0",
+    "mdi-sparkles-55d9ad",
+    "mdi-waves-55c9f0",
+)
+
 _TIME_OF_DAY_PREFIXES = {
     "morning", "morningm", "afternoon", "evening", "night", "dawn", "dusk",
     "am", "pm", "mañana", "tarde", "noche",
@@ -50,7 +66,7 @@ def _activity_group(activity_type: str) -> str:
 def _activity_icon(activity_type: str) -> str:
     group = _activity_group(activity_type)
     icons = {
-        "Running": ("run", "#55c9f0"),
+        "Running": ("sport-shoe", "#55c9f0"),
         "Cycling": ("bike", "#f2c45d"),
         "Weight Training": ("dumbbell", "#f2c45d"),
         "Yoga": ("lotus", "#c49bff"),
@@ -61,24 +77,10 @@ def _activity_icon(activity_type: str) -> str:
 
 
 def _line_icon(name: str, color: str, size: int = 18) -> str:
-    glyphs = {
-        "activity": "&#x223F;",
-        "bike": "&#x2699;",
-        "chart": "&#x2197;",
-        "clock": "&#x25F7;",
-        "dumbbell": "&#x2261;",
-        "heart": "&#x2661;",
-        "lotus": "&#x273F;",
-        "mountain": "&#x25B3;",
-        "moon": "&#x263E;",
-        "run": "&#x2197;",
-        "sparkles": "&#x2727;",
-        "waves": "&#x224B;",
-    }
-    glyph = glyphs.get(name, glyphs["activity"])
+    content_id = f"mdi-{name}-{color.lstrip('#').lower()}"
     return (
-        f"<span data-icon='{name}' style='color:{color};font-family:Arial,Helvetica,sans-serif;"
-        f"font-size:{size}px;line-height:1' aria-hidden='true'>{glyph}</span>"
+        f"<img data-icon='{name}' src='cid:{content_id}' width='{size}' height='{size}' "
+        "alt='' style='display:inline-block;vertical-align:middle;border:0'>"
     )
 
 
@@ -289,9 +291,9 @@ def build_weekly_recap_email(
         return _line_icon(name, "#55d9ad", size)
 
     finding_blocks = "".join(
-        "<div style='padding:7px 0;border-bottom:1px solid #293542'>"
-        f"<div style='color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(item['title'])}</div>"
-        f"<div style='padding-top:3px;color:#c3d0d4;font-size:9px;line-height:1.45'>{escape(item['detail'])}</div>"
+        "<div style='padding:9px 0;border-bottom:1px solid #293542'>"
+        f"<div style='color:#f0f3f7;font-size:14px;font-weight:bold;line-height:1.3'>{escape(item['title'])}</div>"
+        f"<div style='padding-top:5px;color:#c3d0d4;font-size:12px;line-height:1.5'>{escape(item['detail'])}</div>"
         "</div>"
         for item in key_findings
     )
@@ -299,20 +301,20 @@ def build_weekly_recap_email(
     for index, item in enumerate(recommendations):
         if index == 0:
             recommendation_blocks.append(
-                "<div style='margin:4px 0 8px;padding:11px;background:#1b3331;border-radius:8px'>"
-                f"<div style='color:#55d9ad;font-size:9px;line-height:1.2'>{recommendation_icon(item['category'], 16)} "
-                f"<span style='font-size:9px;font-weight:bold;vertical-align:2px'>{escape(item['category'].upper())}</span></div>"
-                f"<div style='padding-top:5px;color:#f3f7f5;font-size:12px;font-weight:bold'>{escape(item['title'])}</div>"
-                f"<div style='padding-top:4px;color:#d5e0e3;font-size:10px;line-height:1.45'>{escape(item['detail'])}</div>"
+                "<div style='margin:5px 0 10px;padding:14px;background:#1b3331;border-radius:8px'>"
+                f"<div style='color:#55d9ad;font-size:11px;line-height:1.4'>{recommendation_icon(item['category'], 18)} "
+                f"<span style='font-size:11px;font-weight:bold;vertical-align:3px'>{escape(item['category'].upper())}</span></div>"
+                f"<div style='padding-top:7px;color:#f3f7f5;font-size:15px;font-weight:bold;line-height:1.3'>{escape(item['title'])}</div>"
+                f"<div style='padding-top:5px;color:#d5e0e3;font-size:13px;line-height:1.5'>{escape(item['detail'])}</div>"
                 "</div>"
             )
         else:
             recommendation_blocks.append(
-                "<div style='padding:7px 0'>"
-                f"<div style='color:#a6b2c3;font-size:9px;line-height:1.2'>{recommendation_icon(item['category'], 14)} "
-                f"<span style='font-size:9px;font-weight:bold;vertical-align:2px'>{escape(item['category'].upper())}</span></div>"
-                f"<div style='padding-top:3px;color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(item['title'])}</div>"
-                f"<div style='padding-top:3px;color:#c3d0d4;font-size:9px;line-height:1.45'>{escape(item['detail'])}</div>"
+                "<div style='padding:9px 0'>"
+                f"<div style='color:#a6b2c3;font-size:11px;line-height:1.4'>{recommendation_icon(item['category'], 16)} "
+                f"<span style='font-size:11px;font-weight:bold;vertical-align:3px'>{escape(item['category'].upper())}</span></div>"
+                f"<div style='padding-top:4px;color:#f0f3f7;font-size:14px;font-weight:bold;line-height:1.3'>{escape(item['title'])}</div>"
+                f"<div style='padding-top:4px;color:#c3d0d4;font-size:12px;line-height:1.5'>{escape(item['detail'])}</div>"
                 "</div>"
             )
     recommendation_blocks_html = "".join(recommendation_blocks)
@@ -361,16 +363,16 @@ def build_weekly_recap_email(
             "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' "
             "bgcolor='#171f2b' style='border-collapse:separate;border-radius:8px'>"
             f"<tr><td style='padding:11px 12px 10px'>"
-            f"<div style='color:{color};font-size:16px;line-height:1'>{_line_icon(icon, color, 18)}</div>"
-            f"<div style='padding-top:4px;color:#f2f5f8;font-size:18px;font-weight:bold;line-height:1.2'>{escape(value)}</div>"
-            f"<div style='padding-top:3px;color:#8e9caf;font-size:9px'>{escape(caption)}</div>"
+            f"<div style='color:{color};font-size:18px;line-height:1'>{_line_icon(icon, color, 20)}</div>"
+            f"<div style='padding-top:6px;color:#f2f5f8;font-size:21px;font-weight:bold;line-height:1.2'>{escape(value)}</div>"
+            f"<div style='padding-top:4px;color:#a6b2c3;font-size:11px;line-height:1.3'>{escape(caption)}</div>"
             "</td></tr></table></td>"
         )
 
     metric_rows = (
         "<tr>"
         + metric_cell(_format_duration(summary.get("duration_seconds")), "Tiempo total", "#55c9f0", "clock")
-        + metric_cell(total_distance_text, "Distancia · todas las actividades", "#55c9f0", "run")
+        + metric_cell(total_distance_text, "Distancia · todas las actividades", "#55c9f0", "sport-shoe")
         + "</tr><tr>"
         + metric_cell(total_load, "Carga semanal", "#f4c65e", "chart")
         + metric_cell(elevation_text, "Desnivel · todas las actividades", "#c49bff", "mountain")
@@ -403,19 +405,19 @@ def build_weekly_recap_email(
         activity_rows.append(
             "<tr><td style='padding:8px 0 3px'>"
             "<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
-            f"<td width='38' valign='top' style='padding-right:9px'><table role='presentation' cellspacing='0' cellpadding='0' bgcolor='#243344' style='border-radius:6px'><tr><td width='32' height='32' align='center' style='font-size:16px'>{icon}</td></tr></table></td>"
-            f"<td valign='top'><span style='color:#f0f3f7;font-size:11px;font-weight:bold'>{escape(group_label)}</span>"
-            f"<br><span style='color:#a0adbf;font-size:9px'>{escape(' · '.join(detail) or 'Sin métricas disponibles')}</span>"
+            f"<td width='42' valign='top' style='padding-right:10px'><table role='presentation' cellspacing='0' cellpadding='0' bgcolor='#243344' style='border-radius:6px'><tr><td width='36' height='36' align='center' style='font-size:18px'>{icon}</td></tr></table></td>"
+            f"<td valign='top'><span style='color:#f0f3f7;font-size:13px;font-weight:bold'>{escape(group_label)}</span>"
+            f"<br><span style='color:#a0adbf;font-size:11px;line-height:1.4'>{escape(' · '.join(detail) or 'Sin métricas disponibles')}</span>"
             f"<table role='presentation' width='100%' cellspacing='0' cellpadding='0' style='margin-top:5px'><tr>"
             f"<td width='{bar_width}%' height='4' bgcolor='{group_color}' style='height:4px;font-size:1px;line-height:1px'>&nbsp;</td>"
             f"<td width='{100 - bar_width}%' height='4' bgcolor='#303b4b' style='height:4px;font-size:1px;line-height:1px'>&nbsp;</td>"
             "</tr></table></td>"
-            f"<td width='70' valign='top' align='right' style='padding-left:6px;color:#e5eaf0;font-size:10px'>{item['sessions']} {'sesión' if item['sessions'] == 1 else 'sesiones'}</td>"
+            f"<td width='78' valign='top' align='right' style='padding-left:6px;color:#e5eaf0;font-size:12px'>{item['sessions']} {'sesión' if item['sessions'] == 1 else 'sesiones'}</td>"
             "</tr></table></td></tr>"
         )
     if not activity_rows:
         activity_rows.append(
-            "<tr><td style='padding:12px 0;color:#a0adbf;font-size:11px'>Sin actividad sincronizada</td></tr>"
+            "<tr><td style='padding:14px 0;color:#a0adbf;font-size:13px'>Sin actividad sincronizada</td></tr>"
         )
 
     latest_sleep_day = next(
@@ -450,50 +452,50 @@ def build_weekly_recap_email(
         bar_width = min(100, max(0, round(score))) if score is not None else 0
         sleep_rows.append(
             "<tr>"
-            f"<td width='34' style='padding:4px 6px;color:#a6b2c3;font-size:10px'>{short_days[offset]}</td>"
+            f"<td width='38' style='padding:6px;color:#a6b2c3;font-size:11px'>{short_days[offset]}</td>"
             "<td style='padding:4px 4px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
             f"<td width='{bar_width}%' height='5' bgcolor='{score_color}' style='height:5px;font-size:1px;line-height:1px'>&nbsp;</td>"
             f"<td width='{100 - bar_width}%' height='5' bgcolor='#303b4b' style='height:5px;font-size:1px;line-height:1px'>&nbsp;</td>"
             "</tr></table></td>"
-            f"<td width='30' align='right' style='padding:4px 6px;color:#dfe6ee;font-size:10px'>{escape(score_text)}</td>"
+            f"<td width='34' align='right' style='padding:6px;color:#dfe6ee;font-size:11px'>{escape(score_text)}</td>"
             "</tr>"
         )
 
     html_content = (
         "<!doctype html><html lang='es'><head><meta charset='utf-8'></head>"
         "<body bgcolor='#07090c' style='margin:0;padding:0;background:#07090c;color:#edf2f7;font-family:Arial,Helvetica,sans-serif'>"
-        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#07090c'><tr><td align='center' style='padding:16px 10px'>"
+        "<table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#07090c'><tr><td align='center' style='padding:18px 10px'>"
         "<table role='presentation' width='560' cellspacing='0' cellpadding='0' bgcolor='#0d1219' style='width:100%;max-width:560px;border-collapse:separate;border-radius:12px'>"
-        "<tr><td style='padding:18px 14px 8px'>"
+        "<tr><td style='padding:20px 16px 10px'>"
         "<table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr>"
-        "<td style='color:#9aa8ba;font-size:9px;letter-spacing:1px'>TRAINING COACH · INFORME SEMANAL</td>"
+        "<td style='color:#9aa8ba;font-size:11px'>TRAINING COACH · INFORME SEMANAL</td>"
         f"<td align='right' style='color:#55d9ad;font-size:14px'>{_line_icon('activity', '#55d9ad', 16)}</td></tr></table>"
-        "<div style='padding-top:6px;color:#f1f4f8;font-size:20px;font-weight:bold'>Resumen de entrenamiento</div>"
-        f"<div style='padding-top:3px;color:#9eacbf;font-size:10px'>{date_range}</div>"
+        "<div style='padding-top:8px;color:#f1f4f8;font-size:24px;font-weight:bold;line-height:1.2'>Resumen de entrenamiento</div>"
+        f"<div style='padding-top:4px;color:#9eacbf;font-size:12px'>{date_range}</div>"
         "</td></tr>"
-        "<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#142b2b' style='border-radius:7px'><tr><td style='padding:10px 11px'>"
-        f"<div style='color:#55d9ad;font-size:9px;font-weight:bold;text-transform:uppercase'>{escape(summary_heading)}</div>"
-        f"<div style='padding-top:4px;color:#d5e0e3;font-size:10px;line-height:1.4'>{escape(summary_line)}</div>"
+        "<tr><td style='padding:0 16px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#142b2b' style='border-radius:7px'><tr><td style='padding:13px'>"
+        f"<div style='color:#55d9ad;font-size:11px;font-weight:bold;text-transform:uppercase'>{escape(summary_heading)}</div>"
+        f"<div style='padding-top:6px;color:#d5e0e3;font-size:13px;line-height:1.5'>{escape(summary_line)}</div>"
         "</td></tr></table></td></tr>"
         f"<tr><td style='padding:0 10px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'>{metric_rows}</table></td></tr>"
-        "<tr><td style='padding:5px 14px 0;color:#f0f3f7;font-size:12px;font-weight:bold'>Actividad semanal</td></tr>"
-        f"<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:0 9px;border-radius:8px'>{''.join(activity_rows)}</table></td></tr>"
-        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Recuperación</td></tr>"
-        "<tr><td style='padding:0 14px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'><tr>"
-        f"<td width='50%' valign='top' style='padding:11px 9px'><div style='color:#a6b2c3;font-size:9px'>Sueño · {escape(latest_day_label)}</div><div style='padding-top:4px;color:#fb8588;font-size:15px;font-weight:bold'>{escape(latest_sleep)}</div></td>"
-        f"<td width='50%' align='right' valign='top' style='padding:11px 9px'><div style='color:#a6b2c3;font-size:9px'>Puntuación</div><div style='padding-top:4px;color:#fb8588;font-size:15px;font-weight:bold'>{escape(latest_sleep_score)}/100</div></td>"
+        "<tr><td style='padding:8px 16px 2px;color:#f0f3f7;font-size:15px;font-weight:bold'>Actividad semanal</td></tr>"
+        f"<tr><td style='padding:0 16px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:0 11px;border-radius:8px'>{''.join(activity_rows)}</table></td></tr>"
+        "<tr><td style='padding:8px 16px 6px;color:#f0f3f7;font-size:15px;font-weight:bold'>Recuperación</td></tr>"
+        "<tr><td style='padding:0 16px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'><tr>"
+        f"<td width='50%' valign='top' style='padding:13px 11px'><div style='color:#a6b2c3;font-size:11px'>Sueño · {escape(latest_day_label)}</div><div style='padding-top:5px;color:#fb8588;font-size:18px;font-weight:bold'>{escape(latest_sleep)}</div></td>"
+        f"<td width='50%' align='right' valign='top' style='padding:13px 11px'><div style='color:#a6b2c3;font-size:11px'>Puntuación</div><div style='padding-top:5px;color:#fb8588;font-size:18px;font-weight:bold'>{escape(latest_sleep_score)}/100</div></td>"
         "</tr><tr>"
-        f"<td valign='top' style='padding:5px 9px 9px'><div style='color:#a6b2c3;font-size:9px'>Pulso en reposo</div><div style='padding-top:4px;color:#ffbd65;font-size:14px;font-weight:bold'>{escape(latest_resting_hr)} bpm</div></td>"
-        f"<td align='right' valign='top' style='padding:5px 9px 9px'><div style='color:#a6b2c3;font-size:9px'>Forma (TSB)</div><div style='padding-top:4px;color:#55d9ad;font-size:14px;font-weight:bold'>{escape(form_text)}</div></td>"
-        "</tr><tr><td colspan='2' style='padding:0 9px 10px;color:#a6b2c3;font-size:9px;line-height:1.4'>El sueño y el pulso en reposo ayudan a contextualizar la carga semanal.</td></tr></table></td></tr>"
-        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Evolución de la semana</td></tr>"
-        f"<tr><td style='padding:6px 9px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'>{''.join(sleep_rows)}"
-        "<tr><td colspan='3' style='padding:6px;color:#9eacbf;font-size:9px'>Puntuación del sueño · escala de 0 a 100</td></tr></table></td></tr>"
-        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Lo más importante</td></tr>"
-        f"<tr><td style='padding:0 14px 8px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:2px 11px;border-radius:8px'><tr><td>{finding_blocks}</td></tr></table></td></tr>"
-        "<tr><td style='padding:4px 14px 6px;color:#f0f3f7;font-size:12px;font-weight:bold'>Recomendaciones para la próxima semana</td></tr>"
-        f"<tr><td style='padding:0 14px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr><td>{recommendation_blocks_html}</td></tr></table></td></tr>"
-        f"<tr><td style='padding:0 14px 14px;color:#77869a;font-size:8px'>TRAINING COACH · Semana {week_start.isocalendar().week} · Entrenamiento y recuperación</td></tr>"
+        f"<td valign='top' style='padding:7px 11px 11px'><div style='color:#a6b2c3;font-size:11px'>Pulso en reposo</div><div style='padding-top:5px;color:#ffbd65;font-size:17px;font-weight:bold'>{escape(latest_resting_hr)} bpm</div></td>"
+        f"<td align='right' valign='top' style='padding:7px 11px 11px'><div style='color:#a6b2c3;font-size:11px'>Forma (TSB)</div><div style='padding-top:5px;color:#55d9ad;font-size:17px;font-weight:bold'>{escape(form_text)}</div></td>"
+        "</tr><tr><td colspan='2' style='padding:0 11px 12px;color:#a6b2c3;font-size:11px;line-height:1.5'>El sueño y el pulso en reposo ayudan a contextualizar la carga semanal.</td></tr></table></td></tr>"
+        "<tr><td style='padding:8px 16px 6px;color:#f0f3f7;font-size:15px;font-weight:bold'>Evolución de la semana</td></tr>"
+        f"<tr><td style='padding:0 16px 12px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='border-radius:8px'>{''.join(sleep_rows)}"
+        "<tr><td colspan='3' style='padding:8px;color:#9eacbf;font-size:11px'>Puntuación del sueño · escala de 0 a 100</td></tr></table></td></tr>"
+        "<tr><td style='padding:8px 16px 6px;color:#f0f3f7;font-size:15px;font-weight:bold'>Lo más importante</td></tr>"
+        f"<tr><td style='padding:0 16px 10px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0' bgcolor='#171f2b' style='padding:3px 13px;border-radius:8px'><tr><td>{finding_blocks}</td></tr></table></td></tr>"
+        "<tr><td style='padding:8px 16px 6px;color:#f0f3f7;font-size:15px;font-weight:bold'>Recomendaciones para la próxima semana</td></tr>"
+        f"<tr><td style='padding:0 16px 14px'><table role='presentation' width='100%' cellspacing='0' cellpadding='0'><tr><td>{recommendation_blocks_html}</td></tr></table></td></tr>"
+        f"<tr><td style='padding:0 16px 16px;color:#77869a;font-size:10px'>TRAINING COACH · Semana {week_start.isocalendar().week} · Entrenamiento y recuperación</td></tr>"
         "</table></td></tr></table></body></html>"
     )
 
