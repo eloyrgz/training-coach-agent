@@ -5,6 +5,8 @@ so the chat agent can generate, list, and manage training plans conversationally
 """
 from __future__ import annotations
 
+import os
+from datetime import date, time
 from pathlib import Path
 from typing import Optional
 from langchain_core.tools import tool
@@ -18,7 +20,10 @@ ensure_submodule_importable("plan_generator")
 
 from plan_generator.db import PlanGeneratorDB
 from plan_generator.config import get_db_uri, get_plan_schema
-from plan_generator.intervals_push import build_intervals_lookup, build_plan_events
+from plan_generator.intervals_push import (
+    build_intervals_lookup, build_plan_events, match_workout,
+    normalize_description_repeats, normalize_workout_doc,
+)
 from plan_generator.plan_engine import generate_plan as _engine_generate_plan
 
 load_dotenv(override=True)
@@ -26,6 +31,157 @@ load_dotenv(override=True)
 
 def _get_db() -> PlanGeneratorDB:
     return PlanGeneratorDB(get_db_uri())
+
+
+def _running_library_index(remote_workouts: list) -> list:
+    # One lookup per workout so duplicate code/name matches stay detectable.
+    return [
+        (remote, build_intervals_lookup([remote]))
+        for remote in remote_workouts
+        if remote.get("type") in ("Run", "TrailRun")
+    ]
+
+
+def _running_library_matches(workout_name: str, index: list) -> list:
+    return [remote for remote, lookup in index if match_workout(workout_name, lookup)]
+
+
+def _like_pattern(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+@tool
+def search_running_workouts(
+    query: str = "",
+    workout_type: Optional[str] = None,
+    duration_max: Optional[float] = None,
+    limit: int = 10,
+) -> list:
+    """Find running workouts in Supabase that match the configured Intervals library folder.
+    query searches workout names/codes (e.g. RF5); workout_type filters the local
+    classification (e.g. Foundation, Long Run). duration_max is in minutes.
+    Returns workout_uid for schedule_running_workout, duration, intensity and purpose.
+    """
+    try:
+        folder_id = int(os.environ["INTERVALS_WORKOUT_FOLDER_ID"])
+    except (KeyError, ValueError):
+        return [{"error": "Set INTERVALS_WORKOUT_FOLDER_ID to a valid folder ID."}]
+    client = IntervalsClient.from_env()
+    if not client:
+        return [{"error": "Intervals.icu credentials not configured."}]
+    conditions = ["source_zip <> 'ntc-catalog'", "workout_name ILIKE %s"]
+    params = [_like_pattern(query)]
+    if workout_type:
+        conditions.append("workout_type ILIKE %s")
+        params.append(_like_pattern(workout_type))
+    if duration_max is not None:
+        conditions.append("duration_minutes <= %s")
+        params.append(duration_max)
+    db = _get_db()
+    try:
+        rows = db.fetchall(
+            f"""
+            SELECT workout_uid, workout_name, workout_type, duration_minutes, intensity, purpose
+            FROM {get_plan_schema()}.workout_library
+            WHERE {' AND '.join(conditions)}
+            ORDER BY workout_name, workout_uid
+            """,
+            tuple(params),
+        )
+    finally:
+        db.close()
+    try:
+        remote_workouts = [
+            remote for remote in client.get_workouts()
+            if remote.get("folder_id") == folder_id
+        ]
+    except IntervalsAPIError as error:
+        return [{"error": f"Failed to fetch workout library: {error}"}]
+    index = _running_library_index(remote_workouts)
+    results = []
+    for row in rows:
+        matches = _running_library_matches(row[1], index)
+        if len(matches) != 1:
+            continue
+        results.append({
+            "workout_uid": row[0], "name": row[1], "workout_type": row[2],
+            "duration_min": float(row[3]) if row[3] is not None else None,
+            "intensity": row[4], "purpose": row[5],
+            "intervals_workout_id": matches[0].get("id"),
+        })
+        if len(results) >= max(1, min(limit, 50)):
+            break
+    return results
+
+
+@tool
+def schedule_running_workout(
+    workout_uid: str,
+    target_date: str,
+    time_of_day: str = "00:00",
+) -> dict:
+    """Schedule one running library workout on Intervals.icu, preserving structured steps.
+    Use an exact workout_uid returned by search_running_workouts, a target_date
+    (YYYY-MM-DD), and optional time_of_day (HH:MM). Never generates a full plan.
+    Only schedules a unique running match in INTERVALS_WORKOUT_FOLDER_ID.
+    """
+    try:
+        scheduled_date = date.fromisoformat(target_date)
+        scheduled_time = time.fromisoformat(time_of_day)
+        folder_id = int(os.environ["INTERVALS_WORKOUT_FOLDER_ID"])
+        if scheduled_time.tzinfo is not None:
+            raise ValueError("time zone offsets are not supported")
+    except (KeyError, ValueError):
+        return {"error": "Provide a valid date, time (HH:MM), and INTERVALS_WORKOUT_FOLDER_ID."}
+    client = IntervalsClient.from_env()
+    if not client:
+        return {"error": "Intervals.icu credentials not configured."}
+    db = _get_db()
+    try:
+        rows = db.fetchall(
+            f"""
+            SELECT workout_uid, workout_name, workout_type, duration_minutes, intensity, purpose
+            FROM {get_plan_schema()}.workout_library
+            WHERE workout_uid = %s AND source_zip <> 'ntc-catalog'
+            """,
+            (workout_uid,),
+        )
+    finally:
+        db.close()
+    if not rows:
+        return {"error": f"Running workout not found: {workout_uid}"}
+    try:
+        remote_workouts = [
+            remote for remote in client.get_workouts()
+            if remote.get("folder_id") == folder_id
+        ]
+        matches = _running_library_matches(rows[0][1], _running_library_index(remote_workouts))
+        if len(matches) != 1:
+            return {"error": "No unique running workout match in the configured folder; nothing scheduled."}
+        remote = matches[0]
+        event = {
+            "start_date_local": f"{scheduled_date.isoformat()}T{scheduled_time.isoformat()}",
+            "category": "WORKOUT", "type": remote["type"], "name": remote["name"],
+            "description": normalize_description_repeats(remote.get("description") or ""),
+            "external_id": f"running_{workout_uid}_{scheduled_date.isoformat()}",
+        }
+        if remote.get("moving_time") is not None:
+            event["moving_time"] = remote["moving_time"]
+        elif rows[0][3] is not None:
+            event["moving_time"] = int(rows[0][3] * 60)
+        if remote.get("distance") is not None:
+            event["distance"] = remote["distance"]
+        if remote.get("workout_doc"):
+            event["workout_doc"] = normalize_workout_doc(remote["workout_doc"])
+        client.create_events_bulk([event], upsert=True)
+    except IntervalsAPIError as error:
+        return {"error": f"Failed to schedule running workout: {error}"}
+    return {
+        "status": "scheduled", "workout_uid": workout_uid, "name": remote["name"],
+        "date": scheduled_date.isoformat(), "time": scheduled_time.isoformat(),
+        "intervals_workout_id": remote.get("id"),
+    }
 
 
 @tool
@@ -404,6 +560,8 @@ def delete_plan(instance_id: Optional[int] = None) -> dict:
 
 
 PLAN_TOOLS = [
+    search_running_workouts,
+    schedule_running_workout,
     list_blueprints,
     generate_training_plan,
     list_plans,

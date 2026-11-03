@@ -135,9 +135,21 @@ TELEGRAM_ALLOWED_USER_IDS=123456789
 # SQL schema for plan generator tables (default: plan_gen)
 PLAN_GEN_SCHEMA=plan_gen
 
-# Optional: Intervals.icu workout library folder for import-workouts-from-intervals
+# Intervals.icu library folder: used for imports and required for individual running workouts
 INTERVALS_WORKOUT_FOLDER_ID=897374
 ```
+
+### Schedule a Running Library Workout
+
+Ask the coach, for example: "Find a foundation run under 45 minutes" or
+"Programa RF5 para el martes". The coach searches Supabase's
+`plan_gen.workout_library` (or `PLAN_GEN_SCHEMA`) and matches workout names/codes
+to running workouts in `INTERVALS_WORKOUT_FOLDER_ID`.
+
+After the workout and date are clear, it schedules just that workout in
+Intervals.icu with the library's structured steps, duration and description.
+Missing or ambiguous matches are not scheduled. Repeating the same workout/date
+updates the same calendar entry rather than adding a duplicate.
 
 ---
 

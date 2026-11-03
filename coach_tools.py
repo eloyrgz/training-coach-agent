@@ -4,6 +4,7 @@ from langchain_core.tools import tool
 from dotenv import load_dotenv
 
 from agent_memory import SupabaseAgentMemory
+from activity_analysis import fetch_activity_data, is_valid_activity_id, summarize_activity
 from intervals_icu_client import IntervalsClient, IntervalsAPIError
 
 load_dotenv(override=True)
@@ -375,6 +376,65 @@ def compare_planned_vs_actual(target_date: Optional[str] = None) -> dict:
 
 
 @tool
+def analyze_activity(
+    target_date: Optional[str] = None,
+    activity_name: Optional[str] = None,
+    activity_id: Optional[str] = None,
+) -> dict:
+    """
+    Detailed analysis of ONE recorded workout from its second-by-second watch data (HR, pace, cadence, altitude).
+    Use for: 'analiza mi carrera de hoy', 'cómo fue el ritmo/pulso', 'deriva cardiaca', 'cómo fueron las series/intervalos',
+    'parciales por km', 'zonas de pulso', 'cadencia', 'cómo subí las cuestas'.
+    target_date: YYYY-MM-DD (defaults to today). activity_name: hint when several activities share a date.
+    activity_id: exact Intervals.icu ID if known (overrides date/name).
+    Returns overview, HR/pace zone distribution, first-vs-second-half drift and aerobic decoupling,
+    per-km (or per-time) splits with HR/cadence/elevation, and auto-detected intervals.
+    """
+    client = IntervalsClient.from_env()
+    if not client:
+        return {"error": "Missing INTERVALS_ATHLETE_ID or INTERVALS_API_KEY."}
+
+    others = []
+    hint_note = None
+    if not activity_id:
+        target = target_date or date.today().isoformat()
+        try:
+            activities = client.get_activities(oldest=target, newest=target)
+        except IntervalsAPIError as e:
+            return {"error": f"Failed to fetch activities: {e}"}
+        if not activities:
+            return {"error": f"No recorded activities found on {target}."}
+        hint = (activity_name or "").casefold()
+        matches = [
+            a for a in activities
+            if hint and (hint in (a.get("name") or "").casefold() or hint == (a.get("type") or "").casefold())
+        ]
+        if hint and not matches:
+            hint_note = f"No activity matched '{activity_name}'; analyzed the longest activity of the day instead."
+        matches = matches or activities
+        chosen = max(matches, key=lambda a: a.get("moving_time") or 0)
+        activity_id = str(chosen.get("id"))
+        others = [
+            {"activity_id": a.get("id"), "name": a.get("name"), "type": a.get("type")}
+            for a in activities if str(a.get("id")) != activity_id
+        ]
+
+    if not is_valid_activity_id(activity_id):
+        return {"error": f"Invalid activity ID: {activity_id}"}
+    try:
+        detail, streams, intervals = fetch_activity_data(client, activity_id)
+    except IntervalsAPIError as e:
+        return {"error": f"Failed to fetch activity data: {e}"}
+
+    analysis = summarize_activity(detail, streams, intervals)
+    if others:
+        analysis["other_activities_same_day"] = others
+    if hint_note:
+        analysis["note"] = " ".join(filter(None, [hint_note, analysis.get("note")]))
+    return analysis
+
+
+@tool
 def get_medical_background() -> list:
     """Get the athlete's stored medical background (prior injuries, surgeries, chronic conditions).
     Use when the user asks about their injury history, medical conditions, or when providing injury advice."""
@@ -399,6 +459,7 @@ ALL_TOOLS = [
     get_scheduled_workouts,
     delete_scheduled_workout,
     compare_planned_vs_actual,
+    analyze_activity,
     log_rpe,
     get_medical_background,
 ]
